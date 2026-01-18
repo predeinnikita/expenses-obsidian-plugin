@@ -1,0 +1,95 @@
+.expenses-view {
+  padding: 16px;
+  font-size: 14px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.expenses-header {
+  margin-bottom: 12px;
+}
+
+.expenses-subtitle {
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.expenses-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 18px;
+}
+
+.expenses-table th,
+.expenses-table td {
+  border: 1px solid var(--background-modifier-border);
+  padding: 8px;
+}
+
+.expenses-table th {
+  background: var(--background-secondary);
+  text-align: left;
+}
+
+.expenses-table.monthly td:nth-child(2) {
+  text-align: right;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.chart {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--background-secondary);
+}
+
+.echarts-card h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.echart {
+  width: 100%;
+  height: 400px;
+}
+
+.expenses-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 12px 0 6px;
+}
+
+.expenses-list button,
+.expense-actions button {
+  margin-left: 6px;
+}
+
+.expense-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.expense-actions {
+  flex-shrink: 0;
+}
+
+.start-month {
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.modal-button-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
