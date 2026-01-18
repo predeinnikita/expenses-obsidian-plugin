@@ -3,8 +3,8 @@
   "name": "Expenses",
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
-  "description": "Track expenses with monthly totals converted to RUB with CBR rates.",
-  "author": "Codex",
-  "authorUrl": "https://github.com",
+  "description": "Track expenses with monthly totals converted to Bank of Russia rates, charts, and multi-language UI.",
+  "author": "predeinnikita",
+  "authorUrl": "hhttps://github.com/predeinnikita",
   "isDesktopOnly": false
 }
