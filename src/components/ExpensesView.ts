@@ -8,6 +8,14 @@ import { STRINGS } from "../model/translations";
 export class ExpensesView extends ItemView {
   private lineChart?: echarts.ECharts;
   private pieChart?: echarts.ECharts;
+  private expenseTableContainer?: HTMLElement;
+  private totalsTableContainer?: HTMLElement;
+  private cachedTotals: MonthlyTotal[] = [];
+  private cachedLatest?: MonthlyTotal;
+  private cachedBaseCurrency = "RUB";
+  private cachedStrings = STRINGS.en;
+  private expenseSort: { key: "name" | "cadence" | "amount" | "baseValue"; dir: "asc" | "desc" } | null =
+    null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: ExpensesPlugin) {
     super(leaf);
@@ -37,6 +45,10 @@ export class ExpensesView extends ItemView {
     const strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en;
     const months = this.plugin.getRecentMonths();
     const totals = await this.plugin.calculateMonthlyTotals(months);
+    this.cachedTotals = totals;
+    this.cachedLatest = totals[0];
+    this.cachedBaseCurrency = baseCurrency;
+    this.cachedStrings = strings;
 
     const heading = container.createEl("div", { cls: "expenses-header" });
     heading.createEl("h2", { text: strings.heading });
@@ -58,9 +70,11 @@ export class ExpensesView extends ItemView {
     }
 
     this.renderCharts(container, totals, strings);
+    this.expenseTableContainer = container.createDiv({ cls: "expense-table-container" });
+    this.totalsTableContainer = container.createDiv({ cls: "totals-table-container" });
     const latest = totals[0];
-    this.renderExpenseTable(container, latest, baseCurrency, strings);
-    this.renderMonthlyTotals(container, totals, baseCurrency, strings);
+    this.renderExpenseTable(this.expenseTableContainer, latest, baseCurrency, strings);
+    this.renderMonthlyTotals(this.totalsTableContainer, totals, baseCurrency, strings);
   }
 
   onPaneMenu() {
@@ -74,23 +88,30 @@ export class ExpensesView extends ItemView {
     baseCurrency: string,
     strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en,
   ) {
+    container.empty();
     container.createEl("h3", {
       text: strings.monthlyExpensesTitle(latest.month.label),
     });
     const table = container.createEl("table", { cls: "expenses-table" });
     const thead = table.createEl("thead");
     const headerRow = thead.createEl("tr");
-    [
-      strings.tableHeaders.name,
-      strings.tableHeaders.cadence,
-      strings.tableHeaders.amount,
-      strings.tableHeaders.converted(latest.month.label, baseCurrency),
-    ].forEach((name) => {
-      headerRow.createEl("th", { text: name });
+    const expenseHeaders: Array<{ key: "name" | "cadence" | "amount" | "baseValue"; label: string }> = [
+      { key: "name", label: strings.tableHeaders.name },
+      { key: "cadence", label: strings.tableHeaders.cadence },
+      { key: "amount", label: strings.tableHeaders.amount },
+      { key: "baseValue", label: strings.tableHeaders.converted(latest.month.label, baseCurrency) },
+    ];
+    expenseHeaders.forEach(({ key, label }) => {
+      const th = headerRow.createEl("th");
+      th.createSpan({
+        text: `${label} ${this.getSortIcon(this.expenseSort, key)}`.trim(),
+      });
+      th.style.cursor = "pointer";
+      th.addEventListener("click", () => this.toggleExpenseSort(key));
     });
 
     const tbody = table.createEl("tbody");
-    latest.breakdown.forEach((entry) => {
+    this.getSortedExpenses(latest.breakdown).forEach((entry) => {
       const row = tbody.createEl("tr");
       row.createEl("td", { text: entry.name });
       row.createEl("td", {
@@ -109,6 +130,7 @@ export class ExpensesView extends ItemView {
     baseCurrency: string,
     strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en,
   ) {
+    container.empty();
     container.createEl("h3", { text: strings.totalsTitle(baseCurrency) });
     const table = container.createEl("table", { cls: "expenses-table monthly" });
     const thead = table.createEl("thead");
@@ -181,23 +203,27 @@ export class ExpensesView extends ItemView {
   private drawPieChart(el: HTMLElement, month: MonthlyTotal, textColor: string) {
     this.pieChart?.dispose();
     this.pieChart = echarts.init(el);
-    const data = month.breakdown.map((item) => ({
-      name: `${item.name} (${item.currency})`,
-      value: Number(item.baseValue.toFixed(2)),
-    }));
+    const data = month.breakdown
+      .sort((a, b) => b.baseValue - a.baseValue)
+      .map((item) => ({
+        name: `${item.name}`,
+        value: Number(item.baseValue.toFixed(2)),
+      }));
     this.pieChart.setOption({
-      tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)", textStyle: { color: textColor } },
+      tooltip: { trigger: "item", formatter: `{b}: ${this.plugin.settings.baseCurrency.toUpperCase()} {c} ({d}%)`, textStyle: { color: textColor } },
       legend: {
         orient: "horizontal",
-        bottom: 0,
+        bottom: 12,
         left: "center",
+        padding: [8, 0, 0, 0],
         textStyle: { color: textColor },
       },
       series: [
         {
           type: "pie",
           radius: ["40%", "65%"],
-          center: ["50%", "45%"],
+          top: 0,
+          bottom: 80,
           data,
           label: { formatter: "{b}", color: textColor },
         },
@@ -220,10 +246,52 @@ export class ExpensesView extends ItemView {
     this.lineChart?.resize();
     this.pieChart?.resize();
   }
+
+  private toggleExpenseSort(key: "name" | "cadence" | "amount" | "baseValue") {
+    this.expenseSort = nextSortState(this.expenseSort, key);
+    if (this.cachedLatest && this.expenseTableContainer) {
+      this.renderExpenseTable(this.expenseTableContainer, this.cachedLatest, this.cachedBaseCurrency, this.cachedStrings);
+    }
+  }
+
+  private getSortedExpenses(items: MonthlyTotal["breakdown"]) {
+    if (!this.expenseSort) return [...items];
+    const { key, dir } = this.expenseSort;
+    return [...items].sort((a, b) => compareValues(a[key], b[key], dir));
+  }
+
+  private getSortIcon<T extends string>(state: { key: T; dir: "asc" | "desc" } | null, key: T) {
+    if (!state || state.key !== key) return "⇅";
+    return state.dir === "asc" ? "▲" : "▼";
+  }
 }
 
 function getTextColor() {
   const style = getComputedStyle(document.body);
   const color = style.getPropertyValue("--text-normal")?.trim();
   return color || "#e5e7eb";
+}
+
+function compareValues(a: string | number, b: string | number, dir: "asc" | "desc") {
+  let result = 0;
+  if (typeof a === "number" && typeof b === "number") {
+    result = a - b;
+  } else {
+    result = String(a).localeCompare(String(b), undefined, { numeric: true });
+  }
+  return dir === "asc" ? result : -result;
+}
+
+function nextSortState<T extends string>(
+  current: { key: T; dir: "asc" | "desc" } | null,
+  key: T,
+): { key: T; dir: "asc" | "desc" } | null {
+  if (!current || current.key !== key) {
+    return { key, dir: "asc" };
+  }
+  if (current.dir === "asc") {
+    return { key, dir: "desc" };
+  }
+  // reset to no sort
+  return null;
 }

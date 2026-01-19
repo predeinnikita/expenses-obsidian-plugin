@@ -36,12 +36,17 @@ export class ExpensesSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(strings.baseCurrency)
       .setDesc(strings.baseCurrencyDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("RUB")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions({
+            RUB: "RUB",
+            AMD: "AMD",
+            USD: "USD",
+            EUR: "EUR",
+          })
           .setValue(this.plugin.settings.baseCurrency ?? "RUB")
           .onChange(async (value) => {
-            this.plugin.settings.baseCurrency = value.trim().toUpperCase() || "RUB";
+            this.plugin.settings.baseCurrency = value.toUpperCase();
             await this.plugin.saveSettings();
           }),
       );
@@ -53,6 +58,7 @@ export class ExpensesSettingTab extends PluginSettingTab {
         slider
           .setLimits(1, 12, 1)
           .setValue(this.plugin.settings.monthsToShow)
+          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.monthsToShow = value;
             await this.plugin.saveSettings();
