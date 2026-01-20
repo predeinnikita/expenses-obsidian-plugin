@@ -10,7 +10,7 @@ type SortKey = "name" | "cadence" | "amount" | "baseValue";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
 
 export class ExpensesView extends ItemView {
-  private lineChart?: echarts.ECharts;
+  private waterfallChart?: echarts.ECharts;
   private pieChart?: echarts.ECharts;
   private pieLegendHandlerAttached = false;
   private expenseTableContainer?: HTMLElement;
@@ -87,7 +87,7 @@ export class ExpensesView extends ItemView {
     }
 
     if (hasExpenses) {
-      this.renderCharts(container, expenseTotals, strings);
+      this.renderCharts(container, expenseTotals, incomeTotals, baseCurrency, strings);
     }
 
     if (hasIncomes && this.cachedLatestIncome) {
@@ -104,7 +104,7 @@ export class ExpensesView extends ItemView {
   }
 
   onPaneMenu() {
-    this.lineChart?.resize();
+    this.waterfallChart?.resize();
     this.pieChart?.resize();
   }
 
@@ -217,30 +217,38 @@ export class ExpensesView extends ItemView {
 
   private renderCharts(
     container: HTMLElement,
-    totals: MonthlyTotal[],
+    expenseTotals: MonthlyTotal[],
+    incomeTotals: MonthlyTotal[],
+    baseCurrency: string,
     strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en,
   ) {
     const textColor = getTextColor();
     this.textColor = textColor;
     const charts = container.createDiv({ cls: "charts" });
-    const lineBox = charts.createDiv({ cls: "chart echarts-card" });
-    lineBox.createEl("h3", {
-      text: strings.trendTitle(this.plugin.settings.baseCurrency.toUpperCase()),
+    const waterfallBox = charts.createDiv({ cls: "chart echarts-card" });
+    waterfallBox.createEl("h3", {
+      text: strings.trendTitle(baseCurrency),
     });
-    const lineEl = lineBox.createDiv({ cls: "echart" });
+    const waterfallEl = waterfallBox.createDiv({ cls: "echart" });
 
     const pieBox = charts.createDiv({ cls: "chart echarts-card" });
-    pieBox.createEl("h3", { text: strings.pieTitle(totals[0].month.label) });
+    pieBox.createEl("h3", { text: strings.pieTitle(expenseTotals[0].month.label) });
     const pieEl = pieBox.createDiv({ cls: "echart" });
 
     const filteredTotals = this.getFilteredExpenseTotals();
-    this.drawLineChart(lineEl, filteredTotals, textColor);
-    this.drawPieChart(pieEl, totals[0], textColor);
+    this.drawWaterfallChart(waterfallEl, filteredTotals[0], incomeTotals[0], textColor);
+    this.drawPieChart(pieEl, expenseTotals[0], textColor);
   }
 
-  private drawLineChart(el: HTMLElement, totals: MonthlyTotal[], textColor: string) {
-    this.lineChart = echarts.init(el);
-    this.lineChart.setOption(this.getLineChartOption(totals, textColor));
+  private drawWaterfallChart(
+    el: HTMLElement,
+    expenseTotal: MonthlyTotal | undefined,
+    incomeTotal: MonthlyTotal | undefined,
+    textColor: string,
+  ) {
+    this.waterfallChart?.dispose();
+    this.waterfallChart = echarts.init(el);
+    this.waterfallChart.setOption(this.getWaterfallChartOption(expenseTotal, incomeTotal, textColor));
   }
 
   private drawPieChart(el: HTMLElement, month: MonthlyTotal, textColor: string) {
@@ -251,8 +259,8 @@ export class ExpensesView extends ItemView {
   }
 
   private disposeCharts() {
-    this.lineChart?.dispose();
-    this.lineChart = undefined;
+    this.waterfallChart?.dispose();
+    this.waterfallChart = undefined;
     if (this.pieChart && this.pieLegendHandlerAttached) {
       this.pieChart.off("legendselectchanged", this.handlePieLegendChange);
       this.pieLegendHandlerAttached = false;
@@ -266,7 +274,7 @@ export class ExpensesView extends ItemView {
   }
 
   onResize() {
-    this.lineChart?.resize();
+    this.waterfallChart?.resize();
     this.pieChart?.resize();
   }
 
@@ -320,15 +328,18 @@ export class ExpensesView extends ItemView {
     if (this.totalsTableContainer) {
       this.renderMonthlyTotals(this.totalsTableContainer, filteredTotals, this.cachedBaseCurrency, this.cachedStrings);
     }
-    this.updateLineChart(filteredTotals);
+    this.updateWaterfallChart(filteredTotals[0], this.cachedLatestIncome);
     if (this.cachedExpenseTotals[0]) {
       this.updatePieChart(this.cachedExpenseTotals[0], this.textColor);
     }
   }
 
-  private updateLineChart(totals: MonthlyTotal[]) {
-    if (!this.lineChart) return;
-    this.lineChart.setOption(this.getLineChartOption(totals, this.textColor), true);
+  private updateWaterfallChart(expenseTotal?: MonthlyTotal, incomeTotal?: MonthlyTotal) {
+    if (!this.waterfallChart) return;
+    this.waterfallChart.setOption(
+      this.getWaterfallChartOption(expenseTotal, incomeTotal, this.textColor),
+      true,
+    );
   }
 
   private updatePieChart(month: MonthlyTotal, textColor = this.textColor) {
@@ -346,13 +357,46 @@ export class ExpensesView extends ItemView {
     return this.filters.applyToTotals(this.cachedExpenseTotals);
   }
 
-  private getLineChartOption(totals: MonthlyTotal[], textColor: string): echarts.EChartsOption {
-    const ordered = [...totals].reverse();
+  private getWaterfallChartOption(
+    expenseTotal: MonthlyTotal | undefined,
+    incomeTotal: MonthlyTotal | undefined,
+    textColor: string,
+  ): echarts.EChartsOption {
+    const baseCurrency = this.plugin.settings.baseCurrency.toUpperCase();
+    const incomeValue = Number((incomeTotal?.totalBase ?? 0).toFixed(2));
+    const expenseValue = Number((expenseTotal?.totalBase ?? 0).toFixed(2));
+    const balanceValue = Number((incomeValue - expenseValue).toFixed(2));
+    const steps = [incomeValue, -expenseValue, balanceValue];
+    let cumulative = 0;
+    const helperData = steps.map((value) => {
+      const start = cumulative;
+      cumulative += value;
+      return start;
+    });
+    const labels = [
+      this.cachedStrings.waterfallLabels.income,
+      this.cachedStrings.waterfallLabels.expense,
+      this.cachedStrings.waterfallLabels.balance,
+    ];
+    const colors = ["#22c55e", "#ef4444", "#3b82f6"];
+
     return {
-      tooltip: { trigger: "axis" },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (params: any[]) => {
+          const bar = params.find((p) => p.seriesName === "value") ?? params[1] ?? params[0];
+          const value = bar?.data?.value ?? bar?.value ?? 0;
+          const name = bar?.name ?? "";
+          const formatted = `${value >= 0 ? "" : "-"}${Math.abs(value).toFixed(2)}`;
+          return `${name}: ${baseCurrency} ${formatted}`;
+        },
+        textStyle: { color: textColor },
+      },
+      grid: { left: 50, right: 24, top: 40, bottom: 50 },
       xAxis: {
         type: "category",
-        data: ordered.map((t) => t.month.label),
+        data: labels,
         axisLabel: { color: textColor },
         axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
       },
@@ -362,16 +406,29 @@ export class ExpensesView extends ItemView {
         axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
         splitLine: { lineStyle: { color: textColor, opacity: 0.3 } },
       },
-      grid: { left: 50, right: 24, top: 40, bottom: 50 },
       series: [
         {
-          type: "line",
-          smooth: true,
-          data: ordered.map((t) => Number(t.totalBase.toFixed(2))),
-          areaStyle: { opacity: 0.12 },
-          lineStyle: { width: 3 },
-          symbol: "circle",
-          itemStyle: { color: "#3b82f6" },
+          name: "offset",
+          type: "bar",
+          stack: "total",
+          itemStyle: { color: "transparent" },
+          emphasis: { disabled: true },
+          data: helperData,
+        },
+        {
+          name: "value",
+          type: "bar",
+          stack: "total",
+          label: {
+            show: true,
+            position: "inside",
+            formatter: ({ value }: any) => `${value >= 0 ? "" : "-"}${Math.abs(value).toFixed(0)}`,
+          },
+          data: steps.map((value, index) => ({
+            value,
+            itemStyle: { color: colors[index] },
+            name: labels[index],
+          })),
         },
       ],
     };

@@ -19,6 +19,7 @@ export type Strings = Record<
     cadenceLabel: { monthly: string; yearly: string };
     totalsTitle: (currency: string) => string;
     trendTitle: (currency: string) => string;
+    waterfallLabels: { income: string; expense: string; balance: string };
     pieTitle: (month: string) => string;
     settingsTitle: string;
     baseCurrency: string;
