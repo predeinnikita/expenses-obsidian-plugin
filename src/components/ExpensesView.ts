@@ -6,21 +6,26 @@ import type { MonthlyTotal } from "../model/MonthlyTotal";
 import type { ExpenseBreakdown } from "../model/ExpenseBreakdown";
 import { STRINGS } from "../model/translations";
 
+type SortKey = "name" | "cadence" | "amount" | "baseValue";
+type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
+
 export class ExpensesView extends ItemView {
   private lineChart?: echarts.ECharts;
   private pieChart?: echarts.ECharts;
   private pieLegendHandlerAttached = false;
   private expenseTableContainer?: HTMLElement;
+  private incomeTableContainer?: HTMLElement;
   private totalsTableContainer?: HTMLElement;
-  private cachedTotals: MonthlyTotal[] = [];
-  private cachedLatest?: MonthlyTotal;
+  private cachedExpenseTotals: MonthlyTotal[] = [];
+  private cachedLatestExpense?: MonthlyTotal;
+  private cachedLatestIncome?: MonthlyTotal;
   private cachedBaseCurrency = "RUB";
   private cachedStrings = STRINGS.en;
   private textColor = "#e5e7eb";
   private filters = new ExpenseFilterController();
   private isSyncingLegendSelection = false;
-  private expenseSort: { key: "name" | "cadence" | "amount" | "baseValue"; dir: "asc" | "desc" } | null =
-    null;
+  private expenseSort: SortState = null;
+  private incomeSort: SortState = null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: ExpensesPlugin) {
     super(leaf);
@@ -49,10 +54,16 @@ export class ExpensesView extends ItemView {
     const baseCurrency = (this.plugin.settings.baseCurrency ?? "RUB").toUpperCase();
     const strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en;
     const months = this.plugin.getRecentMonths();
-    const totals = await this.plugin.calculateMonthlyTotals(months);
-    this.cachedTotals = totals;
-    const filteredTotals = this.getFilteredTotals();
-    this.cachedLatest = filteredTotals[0];
+    const hasExpenses = this.plugin.settings.expenses.length > 0;
+    const hasIncomes = this.plugin.settings.incomes.length > 0;
+    const expenseTotals = hasExpenses ? await this.plugin.calculateMonthlyTotals(months) : [];
+    const incomeTotals = hasIncomes
+      ? await this.plugin.calculateMonthlyTotals(months, this.plugin.settings.incomes)
+      : [];
+    this.cachedExpenseTotals = expenseTotals;
+    const filteredTotals = this.getFilteredExpenseTotals();
+    this.cachedLatestExpense = filteredTotals[0];
+    this.cachedLatestIncome = incomeTotals[0];
     this.cachedBaseCurrency = baseCurrency;
     this.cachedStrings = strings;
 
@@ -63,24 +74,33 @@ export class ExpensesView extends ItemView {
       cls: "expenses-subtitle",
     });
 
-    if (!this.plugin.settings.expenses.length) {
+    if (!hasExpenses && !hasIncomes) {
       heading.createEl("p", {
         text: strings.addExpensesHint,
       });
       return;
     }
 
-    if (!totals.length) {
+    if (!expenseTotals.length && !incomeTotals.length) {
       container.createEl("p", { text: strings.noData });
       return;
     }
 
-    this.renderCharts(container, totals, strings);
-    this.expenseTableContainer = container.createDiv({ cls: "expense-table-container" });
-    this.totalsTableContainer = container.createDiv({ cls: "totals-table-container" });
-    const latest = filteredTotals[0];
-    this.renderExpenseTable(this.expenseTableContainer, latest, baseCurrency, strings);
-    this.renderMonthlyTotals(this.totalsTableContainer, filteredTotals, baseCurrency, strings);
+    if (hasExpenses) {
+      this.renderCharts(container, expenseTotals, strings);
+    }
+
+    if (hasIncomes && this.cachedLatestIncome) {
+      this.incomeTableContainer = container.createDiv({ cls: "income-table-container" });
+      this.renderIncomeTable(this.incomeTableContainer, this.cachedLatestIncome, baseCurrency, strings);
+    }
+
+    if (hasExpenses && this.cachedLatestExpense) {
+      this.expenseTableContainer = container.createDiv({ cls: "expense-table-container" });
+      this.totalsTableContainer = container.createDiv({ cls: "totals-table-container" });
+      this.renderExpenseTable(this.expenseTableContainer, this.cachedLatestExpense, baseCurrency, strings);
+      this.renderMonthlyTotals(this.totalsTableContainer, filteredTotals, baseCurrency, strings);
+    }
   }
 
   onPaneMenu() {
@@ -101,7 +121,7 @@ export class ExpensesView extends ItemView {
     const table = container.createEl("table", { cls: "expenses-table" });
     const thead = table.createEl("thead");
     const headerRow = thead.createEl("tr");
-    const expenseHeaders: Array<{ key: "name" | "cadence" | "amount" | "baseValue"; label: string }> = [
+    const expenseHeaders: Array<{ key: SortKey; label: string }> = [
       { key: "name", label: strings.tableHeaders.name },
       { key: "cadence", label: strings.tableHeaders.cadence },
       { key: "amount", label: strings.tableHeaders.amount },
@@ -117,7 +137,50 @@ export class ExpensesView extends ItemView {
     });
 
     const tbody = table.createEl("tbody");
-    this.getSortedExpenses(latest.breakdown).forEach((entry) => {
+    this.getSortedEntries(latest.breakdown, this.expenseSort).forEach((entry) => {
+      const row = tbody.createEl("tr");
+      row.createEl("td", { text: entry.name });
+      row.createEl("td", {
+        text: entry.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly,
+      });
+      row.createEl("td", {
+        text: `${entry.amount.toFixed(2)} ${entry.currency}`,
+      });
+      row.createEl("td", { text: `${entry.baseValue.toFixed(2)} ${baseCurrency}` });
+    });
+  }
+
+  private renderIncomeTable(
+    container: HTMLElement,
+    latest: MonthlyTotal,
+    baseCurrency: string,
+    strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en,
+  ) {
+    container.empty();
+    container.createEl("h3", {
+      text: strings.monthlyIncomeTitle(latest.month.label),
+    });
+    const table = container.createEl("table", { cls: "expenses-table" });
+    const thead = table.createEl("thead");
+    const headerRow = thead.createEl("tr");
+    const headers: Array<{ key: SortKey; label: string }> = [
+      { key: "name", label: strings.tableHeaders.name },
+      { key: "cadence", label: strings.tableHeaders.cadence },
+      { key: "amount", label: strings.tableHeaders.amount },
+      { key: "baseValue", label: strings.tableHeaders.converted(latest.month.label, baseCurrency) },
+    ];
+
+    headers.forEach(({ key, label }) => {
+      const th = headerRow.createEl("th");
+      th.createSpan({
+        text: `${label} ${this.getSortIcon(this.incomeSort, key)}`.trim(),
+      });
+      th.style.cursor = "pointer";
+      th.addEventListener("click", () => this.toggleIncomeSort(key));
+    });
+
+    const tbody = table.createEl("tbody");
+    this.getSortedEntries(latest.breakdown, this.incomeSort).forEach((entry) => {
       const row = tbody.createEl("tr");
       row.createEl("td", { text: entry.name });
       row.createEl("td", {
@@ -170,7 +233,7 @@ export class ExpensesView extends ItemView {
     pieBox.createEl("h3", { text: strings.pieTitle(totals[0].month.label) });
     const pieEl = pieBox.createDiv({ cls: "echart" });
 
-    const filteredTotals = this.getFilteredTotals();
+    const filteredTotals = this.getFilteredExpenseTotals();
     this.drawLineChart(lineEl, filteredTotals, textColor);
     this.drawPieChart(pieEl, totals[0], textColor);
   }
@@ -207,32 +270,49 @@ export class ExpensesView extends ItemView {
     this.pieChart?.resize();
   }
 
-  private toggleExpenseSort(key: "name" | "cadence" | "amount" | "baseValue") {
+  private toggleExpenseSort(key: SortKey) {
     this.expenseSort = nextSortState(this.expenseSort, key);
-    if (this.cachedLatest && this.expenseTableContainer) {
-      this.renderExpenseTable(this.expenseTableContainer, this.cachedLatest, this.cachedBaseCurrency, this.cachedStrings);
+    if (this.cachedLatestExpense && this.expenseTableContainer) {
+      this.renderExpenseTable(
+        this.expenseTableContainer,
+        this.cachedLatestExpense,
+        this.cachedBaseCurrency,
+        this.cachedStrings,
+      );
     }
   }
 
-  private getSortedExpenses(items: MonthlyTotal["breakdown"]) {
-    if (!this.expenseSort) return [...items];
-    const { key, dir } = this.expenseSort;
+  private toggleIncomeSort(key: SortKey) {
+    this.incomeSort = nextSortState(this.incomeSort, key);
+    if (this.cachedLatestIncome && this.incomeTableContainer) {
+      this.renderIncomeTable(
+        this.incomeTableContainer,
+        this.cachedLatestIncome,
+        this.cachedBaseCurrency,
+        this.cachedStrings,
+      );
+    }
+  }
+
+  private getSortedEntries(items: MonthlyTotal["breakdown"], state: SortState) {
+    if (!state) return [...items];
+    const { key, dir } = state;
     return [...items].sort((a, b) => compareValues(a[key], b[key], dir));
   }
 
-  private getSortIcon<T extends string>(state: { key: T; dir: "asc" | "desc" } | null, key: T) {
+  private getSortIcon(state: SortState, key: SortKey) {
     if (!state || state.key !== key) return "⇅";
     return state.dir === "asc" ? "▲" : "▼";
   }
 
   private updateFilteredView() {
-    if (!this.cachedTotals.length) return;
-    const filteredTotals = this.getFilteredTotals();
-    this.cachedLatest = filteredTotals[0];
-    if (this.expenseTableContainer && this.cachedLatest) {
+    if (!this.cachedExpenseTotals.length) return;
+    const filteredTotals = this.getFilteredExpenseTotals();
+    this.cachedLatestExpense = filteredTotals[0];
+    if (this.expenseTableContainer && this.cachedLatestExpense) {
       this.renderExpenseTable(
         this.expenseTableContainer,
-        this.cachedLatest,
+        this.cachedLatestExpense,
         this.cachedBaseCurrency,
         this.cachedStrings,
       );
@@ -241,8 +321,8 @@ export class ExpensesView extends ItemView {
       this.renderMonthlyTotals(this.totalsTableContainer, filteredTotals, this.cachedBaseCurrency, this.cachedStrings);
     }
     this.updateLineChart(filteredTotals);
-    if (this.cachedTotals[0]) {
-      this.updatePieChart(this.cachedTotals[0], this.textColor);
+    if (this.cachedExpenseTotals[0]) {
+      this.updatePieChart(this.cachedExpenseTotals[0], this.textColor);
     }
   }
 
@@ -261,9 +341,9 @@ export class ExpensesView extends ItemView {
     }
   }
 
-  private getFilteredTotals() {
-    if (!this.cachedTotals.length) return [];
-    return this.filters.applyToTotals(this.cachedTotals);
+  private getFilteredExpenseTotals() {
+    if (!this.cachedExpenseTotals.length) return [];
+    return this.filters.applyToTotals(this.cachedExpenseTotals);
   }
 
   private getLineChartOption(totals: MonthlyTotal[], textColor: string): echarts.EChartsOption {

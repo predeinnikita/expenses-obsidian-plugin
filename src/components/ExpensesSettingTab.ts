@@ -98,6 +98,40 @@ export class ExpensesSettingTab extends PluginSettingTab {
         this.display();
       });
     });
+
+    const incomeHeader = containerEl.createEl("div", { cls: "expenses-list-header" });
+    incomeHeader.createEl("h3", { text: strings.incomesList });
+    const addIncomeButton = incomeHeader.createEl("button", { text: strings.add });
+    addIncomeButton.addEventListener("click", () => {
+      new ExpenseModal(this.app, null, (income) => this.upsertIncome(income), strings, "income").open();
+    });
+
+    const incomeList = containerEl.createEl("div", { cls: "expenses-list" });
+    this.plugin.settings.incomes.forEach((income) => {
+      const row = incomeList.createEl("div", { cls: "expense-row" });
+      row.createSpan({
+        text: `${income.name} — ${income.amount} ${income.currency.toUpperCase()} (${income.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly})`,
+      });
+
+      if (income.startMonth) {
+        row.createSpan({ text: ` • ${strings.since} ${income.startMonth}`, cls: "start-month" });
+      }
+
+      const actions = row.createDiv({ cls: "expense-actions" });
+      const editBtn = actions.createEl("button", { text: strings.edit });
+      editBtn.addEventListener("click", () => {
+        new ExpenseModal(this.app, income, (updated) => this.upsertIncome(updated), strings, "income").open();
+      });
+
+      const deleteBtn = actions.createEl("button", { text: strings.delete });
+      deleteBtn.addEventListener("click", async () => {
+        this.plugin.settings.incomes = this.plugin.settings.incomes.filter(
+          (item) => item.id !== income.id,
+        );
+        await this.plugin.saveSettings();
+        this.display();
+      });
+    });
   }
 
   private async upsertExpense(expense: Expense) {
@@ -106,6 +140,17 @@ export class ExpensesSettingTab extends PluginSettingTab {
       this.plugin.settings.expenses[existingIndex] = expense;
     } else {
       this.plugin.settings.expenses.push(expense);
+    }
+    await this.plugin.saveSettings();
+    this.display();
+  }
+
+  private async upsertIncome(income: Expense) {
+    const existingIndex = this.plugin.settings.incomes.findIndex((e) => e.id === income.id);
+    if (existingIndex >= 0) {
+      this.plugin.settings.incomes[existingIndex] = income;
+    } else {
+      this.plugin.settings.incomes.push(income);
     }
     await this.plugin.saveSettings();
     this.display();

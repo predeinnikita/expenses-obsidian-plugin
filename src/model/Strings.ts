@@ -9,6 +9,7 @@ export type Strings = Record<
     addExpensesHint: string;
     noData: string;
     monthlyExpensesTitle: (month: string) => string;
+    monthlyIncomeTitle: (month: string) => string;
     tableHeaders: {
       name: string;
       cadence: string;
@@ -25,11 +26,13 @@ export type Strings = Record<
     monthsToShow: string;
     monthsToShowDesc: string;
     expensesList: string;
+    incomesList: string;
     add: string;
     edit: string;
     delete: string;
     since: string;
-    modalTitle: string;
+    expenseModalTitle: string;
+    incomeModalTitle: string;
     name: string;
     amount: string;
     currency: string;

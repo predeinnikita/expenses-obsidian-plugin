@@ -7,11 +7,19 @@ export class ExpenseModal extends Modal {
   private data: Expense;
   private onSubmit: (expense: Expense) => void;
   private strings: Strings[keyof Strings];
+  private mode: "expense" | "income";
 
-  constructor(app: any, expense: Expense | null, onSubmit: (expense: Expense) => void, strings: Strings[keyof Strings]) {
+  constructor(
+    app: any,
+    expense: Expense | null,
+    onSubmit: (expense: Expense) => void,
+    strings: Strings[keyof Strings],
+    mode: "expense" | "income" = "expense",
+  ) {
     super(app);
     this.onSubmit = onSubmit;
     this.strings = strings;
+    this.mode = mode;
     this.data =
       expense ??
       ({
@@ -28,7 +36,8 @@ export class ExpenseModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     const strings = this.strings;
-    contentEl.createEl("h3", { text: strings.modalTitle });
+    const title = this.mode === "income" ? strings.incomeModalTitle : strings.expenseModalTitle;
+    contentEl.createEl("h3", { text: title });
 
     new Setting(contentEl).setName(strings.name).addText((text) =>
       text.setValue(this.data.name).onChange((value) => (this.data.name = value)),

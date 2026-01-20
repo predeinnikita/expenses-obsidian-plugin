@@ -92,16 +92,16 @@ export default class ExpensesPlugin extends Plugin {
     return result;
   }
 
-  private isExpenseActive(expense: Expense, month: MonthRef): boolean {
-    if (!expense.startMonth) return true;
-    return expense.startMonth <= month.key;
+  private isEntryActive(entry: Expense, month: MonthRef): boolean {
+    if (!entry.startMonth) return true;
+    return entry.startMonth <= month.key;
   }
 
-  private monthlyBaseAmount(expense: Expense): number {
-    return expense.cadence === "monthly" ? expense.amount : expense.amount / 12;
+  private monthlyBaseAmount(entry: Expense): number {
+    return entry.cadence === "monthly" ? entry.amount : entry.amount / 12;
   }
 
-  async calculateMonthlyTotals(months: MonthRef[]): Promise<MonthlyTotal[]> {
+  async calculateMonthlyTotals(months: MonthRef[], items: Expense[] = this.settings.expenses): Promise<MonthlyTotal[]> {
     const baseCurrency = this.settings.baseCurrency?.toUpperCase() || "RUB";
     const totals: MonthlyTotal[] = [];
     for (const month of months) {
@@ -109,21 +109,21 @@ export default class ExpensesPlugin extends Plugin {
       let total = 0;
       const baseRate = await this.rateService.getRateForMonth(month, baseCurrency);
 
-      for (const expense of this.settings.expenses) {
-        if (!this.isExpenseActive(expense, month)) continue;
-        const base = this.monthlyBaseAmount(expense);
-        const rate = await this.rateService.getRateForMonth(month, expense.currency);
+      for (const entry of items) {
+        if (!this.isEntryActive(entry, month)) continue;
+        const base = this.monthlyBaseAmount(entry);
+        const rate = await this.rateService.getRateForMonth(month, entry.currency);
         const rub = base * rate;
         const baseValue = baseCurrency === "RUB" ? rub : rub / baseRate;
         total += baseValue;
         breakdown.push({
-          expenseId: expense.id,
-          name: expense.name,
-          currency: expense.currency.toUpperCase(),
+          expenseId: entry.id,
+          name: entry.name,
+          currency: entry.currency.toUpperCase(),
           amount: base,
           baseValue,
           rub,
-          cadence: expense.cadence,
+          cadence: entry.cadence,
         });
       }
 
