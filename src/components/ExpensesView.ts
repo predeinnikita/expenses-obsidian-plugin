@@ -3,17 +3,22 @@ import * as echarts from "echarts";
 import type ExpensesPlugin from "../main";
 import { EXPENSES_VIEW_TYPE } from "../model/constants";
 import type { MonthlyTotal } from "../model/MonthlyTotal";
+import type { ExpenseBreakdown } from "../model/ExpenseBreakdown";
 import { STRINGS } from "../model/translations";
 
 export class ExpensesView extends ItemView {
   private lineChart?: echarts.ECharts;
   private pieChart?: echarts.ECharts;
+  private pieLegendHandlerAttached = false;
   private expenseTableContainer?: HTMLElement;
   private totalsTableContainer?: HTMLElement;
   private cachedTotals: MonthlyTotal[] = [];
   private cachedLatest?: MonthlyTotal;
   private cachedBaseCurrency = "RUB";
   private cachedStrings = STRINGS.en;
+  private textColor = "#e5e7eb";
+  private filters = new ExpenseFilterController();
+  private isSyncingLegendSelection = false;
   private expenseSort: { key: "name" | "cadence" | "amount" | "baseValue"; dir: "asc" | "desc" } | null =
     null;
 
@@ -46,7 +51,8 @@ export class ExpensesView extends ItemView {
     const months = this.plugin.getRecentMonths();
     const totals = await this.plugin.calculateMonthlyTotals(months);
     this.cachedTotals = totals;
-    this.cachedLatest = totals[0];
+    const filteredTotals = this.getFilteredTotals();
+    this.cachedLatest = filteredTotals[0];
     this.cachedBaseCurrency = baseCurrency;
     this.cachedStrings = strings;
 
@@ -72,9 +78,9 @@ export class ExpensesView extends ItemView {
     this.renderCharts(container, totals, strings);
     this.expenseTableContainer = container.createDiv({ cls: "expense-table-container" });
     this.totalsTableContainer = container.createDiv({ cls: "totals-table-container" });
-    const latest = totals[0];
+    const latest = filteredTotals[0];
     this.renderExpenseTable(this.expenseTableContainer, latest, baseCurrency, strings);
-    this.renderMonthlyTotals(this.totalsTableContainer, totals, baseCurrency, strings);
+    this.renderMonthlyTotals(this.totalsTableContainer, filteredTotals, baseCurrency, strings);
   }
 
   onPaneMenu() {
@@ -152,6 +158,7 @@ export class ExpensesView extends ItemView {
     strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en,
   ) {
     const textColor = getTextColor();
+    this.textColor = textColor;
     const charts = container.createDiv({ cls: "charts" });
     const lineBox = charts.createDiv({ cls: "chart echarts-card" });
     lineBox.createEl("h3", {
@@ -163,77 +170,30 @@ export class ExpensesView extends ItemView {
     pieBox.createEl("h3", { text: strings.pieTitle(totals[0].month.label) });
     const pieEl = pieBox.createDiv({ cls: "echart" });
 
-    this.drawLineChart(lineEl, totals, textColor);
+    const filteredTotals = this.getFilteredTotals();
+    this.drawLineChart(lineEl, filteredTotals, textColor);
     this.drawPieChart(pieEl, totals[0], textColor);
   }
 
   private drawLineChart(el: HTMLElement, totals: MonthlyTotal[], textColor: string) {
-    this.lineChart?.dispose();
     this.lineChart = echarts.init(el);
-    const ordered = [...totals].reverse();
-    this.lineChart.setOption({
-      tooltip: { trigger: "axis" },
-      xAxis: {
-        type: "category",
-        data: ordered.map((t) => t.month.label),
-        axisLabel: { color: textColor },
-        axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
-      },
-      yAxis: {
-        type: "value",
-        axisLabel: { color: textColor },
-        axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
-        splitLine: { lineStyle: { color: textColor, opacity: 0.3 } },
-      },
-      grid: { left: 50, right: 24, top: 40, bottom: 50 },
-      series: [
-        {
-          type: "line",
-          smooth: true,
-          data: ordered.map((t) => Number(t.totalBase.toFixed(2))),
-          areaStyle: { opacity: 0.12 },
-          lineStyle: { width: 3 },
-          symbol: "circle",
-          itemStyle: { color: "#3b82f6" },
-        },
-      ],
-    });
+    this.lineChart.setOption(this.getLineChartOption(totals, textColor));
   }
 
   private drawPieChart(el: HTMLElement, month: MonthlyTotal, textColor: string) {
     this.pieChart?.dispose();
     this.pieChart = echarts.init(el);
-    const data = month.breakdown
-      .sort((a, b) => b.baseValue - a.baseValue)
-      .map((item) => ({
-        name: `${item.name}`,
-        value: Number(item.baseValue.toFixed(2)),
-      }));
-    this.pieChart.setOption({
-      tooltip: { trigger: "item", formatter: `{b}: ${this.plugin.settings.baseCurrency.toUpperCase()} {c} ({d}%)`, textStyle: { color: textColor } },
-      legend: {
-        orient: "horizontal",
-        bottom: 12,
-        left: "center",
-        padding: [8, 0, 0, 0],
-        textStyle: { color: textColor },
-      },
-      series: [
-        {
-          type: "pie",
-          radius: ["40%", "65%"],
-          top: 0,
-          bottom: 80,
-          data,
-          label: { formatter: "{b}", color: textColor },
-        },
-      ],
-    });
+    this.pieChart.setOption(this.getPieChartOption(month, textColor));
+    this.attachPieLegendHandler();
   }
 
   private disposeCharts() {
     this.lineChart?.dispose();
     this.lineChart = undefined;
+    if (this.pieChart && this.pieLegendHandlerAttached) {
+      this.pieChart.off("legendselectchanged", this.handlePieLegendChange);
+      this.pieLegendHandlerAttached = false;
+    }
     this.pieChart?.dispose();
     this.pieChart = undefined;
   }
@@ -263,6 +223,210 @@ export class ExpensesView extends ItemView {
   private getSortIcon<T extends string>(state: { key: T; dir: "asc" | "desc" } | null, key: T) {
     if (!state || state.key !== key) return "⇅";
     return state.dir === "asc" ? "▲" : "▼";
+  }
+
+  private updateFilteredView() {
+    if (!this.cachedTotals.length) return;
+    const filteredTotals = this.getFilteredTotals();
+    this.cachedLatest = filteredTotals[0];
+    if (this.expenseTableContainer && this.cachedLatest) {
+      this.renderExpenseTable(
+        this.expenseTableContainer,
+        this.cachedLatest,
+        this.cachedBaseCurrency,
+        this.cachedStrings,
+      );
+    }
+    if (this.totalsTableContainer) {
+      this.renderMonthlyTotals(this.totalsTableContainer, filteredTotals, this.cachedBaseCurrency, this.cachedStrings);
+    }
+    this.updateLineChart(filteredTotals);
+    if (this.cachedTotals[0]) {
+      this.updatePieChart(this.cachedTotals[0], this.textColor);
+    }
+  }
+
+  private updateLineChart(totals: MonthlyTotal[]) {
+    if (!this.lineChart) return;
+    this.lineChart.setOption(this.getLineChartOption(totals, this.textColor), true);
+  }
+
+  private updatePieChart(month: MonthlyTotal, textColor = this.textColor) {
+    if (!this.pieChart) return;
+    this.isSyncingLegendSelection = true;
+    try {
+      this.pieChart.setOption(this.getPieChartOption(month, textColor), true);
+    } finally {
+      this.isSyncingLegendSelection = false;
+    }
+  }
+
+  private getFilteredTotals() {
+    if (!this.cachedTotals.length) return [];
+    return this.filters.applyToTotals(this.cachedTotals);
+  }
+
+  private getLineChartOption(totals: MonthlyTotal[], textColor: string): echarts.EChartsOption {
+    const ordered = [...totals].reverse();
+    return {
+      tooltip: { trigger: "axis" },
+      xAxis: {
+        type: "category",
+        data: ordered.map((t) => t.month.label),
+        axisLabel: { color: textColor },
+        axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: { color: textColor },
+        axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
+        splitLine: { lineStyle: { color: textColor, opacity: 0.3 } },
+      },
+      grid: { left: 50, right: 24, top: 40, bottom: 50 },
+      series: [
+        {
+          type: "line",
+          smooth: true,
+          data: ordered.map((t) => Number(t.totalBase.toFixed(2))),
+          areaStyle: { opacity: 0.12 },
+          lineStyle: { width: 3 },
+          symbol: "circle",
+          itemStyle: { color: "#3b82f6" },
+        },
+      ],
+    };
+  }
+
+  private getPieChartOption(month: MonthlyTotal, textColor: string): echarts.EChartsOption {
+    const slices = this.getPieSeriesData(month);
+    const legendNames = slices.reduce<Record<string, string>>((acc, slice) => {
+      acc[slice.name] = slice.displayName;
+      return acc;
+    }, {});
+    const legendSelection = this.getLegendSelectionState(month.breakdown);
+    const baseCurrency = this.plugin.settings.baseCurrency.toUpperCase();
+
+    return {
+      tooltip: {
+        trigger: "item",
+        formatter: (params: any) => {
+          const name = params.data?.displayName ?? params.name;
+          const value = params.value ?? 0;
+          const percent = params.percent ?? 0;
+          return `${name}: ${baseCurrency} ${value} (${percent}%)`;
+        },
+        textStyle: { color: textColor },
+      },
+      legend: {
+        orient: "horizontal",
+        bottom: 12,
+        left: "center",
+        padding: [8, 0, 0, 0],
+        textStyle: { color: textColor },
+        formatter: (name: string) => legendNames[name] ?? name,
+        selected: legendSelection,
+      },
+      series: [
+        {
+          type: "pie",
+          radius: ["40%", "65%"],
+          top: 0,
+          bottom: 80,
+          data: slices,
+          label: {
+            formatter: ({ data }: any) => data?.displayName ?? "",
+            color: textColor,
+          },
+        },
+      ],
+    };
+  }
+
+  private getPieSeriesData(month: MonthlyTotal) {
+    return month.breakdown
+      .sort((a, b) => b.baseValue - a.baseValue)
+      .map((item) => ({
+        name: item.expenseId,
+        value: Number(item.baseValue.toFixed(2)),
+        displayName: item.name,
+      }));
+  }
+
+  private getLegendSelectionState(breakdown: ExpenseBreakdown[]): Record<string, boolean> {
+    const selection: Record<string, boolean> = {};
+    breakdown.forEach((entry) => {
+      if (selection[entry.expenseId] === undefined) {
+        selection[entry.expenseId] = this.filters.passes(entry);
+      }
+    });
+    return selection;
+  }
+
+  private attachPieLegendHandler() {
+    if (!this.pieChart) return;
+    if (this.pieLegendHandlerAttached) {
+      this.pieChart.off("legendselectchanged", this.handlePieLegendChange);
+    }
+    this.pieChart.on("legendselectchanged", this.handlePieLegendChange);
+    this.pieLegendHandlerAttached = true;
+  }
+
+  private handlePieLegendChange = (event: LegendSelectChangedEvent) => {
+    if (this.isSyncingLegendSelection) return;
+    const selectedIds = new Set<string>();
+    const allIds = Object.keys(event.selected ?? {});
+    Object.entries(event.selected ?? {}).forEach(([id, isSelected]) => {
+      if (isSelected) selectedIds.add(id);
+    });
+    const filterId = "pie-legend-selection";
+    if (!allIds.length) return;
+    if (selectedIds.size === allIds.length) {
+      this.filters.remove(filterId);
+    } else {
+      this.filters.upsert({
+        id: filterId,
+        predicate: (entry) => selectedIds.has(entry.expenseId),
+      });
+    }
+    this.updateFilteredView();
+  };
+}
+
+type LegendSelectChangedEvent = {
+  selected: Record<string, boolean>;
+};
+
+type ExpenseFilter = {
+  id: string;
+  predicate: (entry: ExpenseBreakdown) => boolean;
+};
+
+class ExpenseFilterController {
+  private filters = new Map<string, ExpenseFilter>();
+
+  upsert(filter: ExpenseFilter) {
+    this.filters.set(filter.id, filter);
+  }
+
+  remove(id: string) {
+    this.filters.delete(id);
+  }
+
+  passes(entry: ExpenseBreakdown) {
+    for (const filter of this.filters.values()) {
+      if (!filter.predicate(entry)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  applyToTotals(totals: MonthlyTotal[]): MonthlyTotal[] {
+    return totals.map((total) => {
+      const breakdown = total.breakdown.filter((entry) => this.passes(entry));
+      const totalBase = breakdown.reduce((sum, item) => sum + item.baseValue, 0);
+      return { ...total, breakdown, totalBase };
+    });
   }
 }
 
