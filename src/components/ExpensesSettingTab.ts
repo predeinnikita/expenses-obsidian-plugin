@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ExpensesPlugin from "../main";
 import { STRINGS } from "../model/translations";
 import type { LanguageCode } from "../model/LanguageCode";
@@ -65,11 +65,31 @@ export class ExpensesSettingTab extends PluginSettingTab {
           }),
       );
 
+    new Setting(containerEl)
+      .setName(strings.notesPath)
+      .setDesc(strings.notesPathDesc)
+      .addText((text) =>
+        text
+          .setPlaceholder("Expenses")
+          .setValue(this.plugin.settings.notesPath ?? "")
+          .onChange(async (value) => {
+            this.plugin.settings.notesPath = value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
     const listHeader = containerEl.createEl("div", { cls: "expenses-list-header" });
     listHeader.createEl("h3", { text: strings.expensesList });
     const addButton = listHeader.createEl("button", { text: strings.add });
     addButton.addEventListener("click", () => {
-      new ExpenseModal(this.app, null, (expense) => this.upsertExpense(expense), strings).open();
+      new ExpenseModal(
+        this.app,
+        null,
+        (expense) => this.upsertExpense(expense),
+        strings,
+        "expense",
+        this.getExistingNameKeys(),
+      ).open();
     });
 
     const list = containerEl.createEl("div", { cls: "expenses-list" });
@@ -86,11 +106,19 @@ export class ExpensesSettingTab extends PluginSettingTab {
       const actions = row.createDiv({ cls: "expense-actions" });
       const editBtn = actions.createEl("button", { text: strings.edit });
       editBtn.addEventListener("click", () => {
-        new ExpenseModal(this.app, expense, (updated) => this.upsertExpense(updated), strings).open();
+        new ExpenseModal(
+          this.app,
+          expense,
+          (updated) => this.upsertExpense(updated),
+          strings,
+          "expense",
+          this.getExistingNameKeys(expense.id),
+        ).open();
       });
 
       const deleteBtn = actions.createEl("button", { text: strings.delete });
       deleteBtn.addEventListener("click", async () => {
+        await this.plugin.deleteEntryNote(expense, "expense");
         this.plugin.settings.expenses = this.plugin.settings.expenses.filter(
           (item) => item.id !== expense.id,
         );
@@ -103,7 +131,14 @@ export class ExpensesSettingTab extends PluginSettingTab {
     incomeHeader.createEl("h3", { text: strings.incomesList });
     const addIncomeButton = incomeHeader.createEl("button", { text: strings.add });
     addIncomeButton.addEventListener("click", () => {
-      new ExpenseModal(this.app, null, (income) => this.upsertIncome(income), strings, "income").open();
+      new ExpenseModal(
+        this.app,
+        null,
+        (income) => this.upsertIncome(income),
+        strings,
+        "income",
+        this.getExistingNameKeys(),
+      ).open();
     });
 
     const incomeList = containerEl.createEl("div", { cls: "expenses-list" });
@@ -120,11 +155,19 @@ export class ExpensesSettingTab extends PluginSettingTab {
       const actions = row.createDiv({ cls: "expense-actions" });
       const editBtn = actions.createEl("button", { text: strings.edit });
       editBtn.addEventListener("click", () => {
-        new ExpenseModal(this.app, income, (updated) => this.upsertIncome(updated), strings, "income").open();
+        new ExpenseModal(
+          this.app,
+          income,
+          (updated) => this.upsertIncome(updated),
+          strings,
+          "income",
+          this.getExistingNameKeys(income.id),
+        ).open();
       });
 
       const deleteBtn = actions.createEl("button", { text: strings.delete });
       deleteBtn.addEventListener("click", async () => {
+        await this.plugin.deleteEntryNote(income, "income");
         this.plugin.settings.incomes = this.plugin.settings.incomes.filter(
           (item) => item.id !== income.id,
         );
@@ -135,24 +178,52 @@ export class ExpensesSettingTab extends PluginSettingTab {
   }
 
   private async upsertExpense(expense: Expense) {
+    if (this.hasDuplicateName(expense)) {
+      const strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en;
+      new Notice(strings.duplicateName);
+      return;
+    }
     const existingIndex = this.plugin.settings.expenses.findIndex((e) => e.id === expense.id);
+    const previous = existingIndex >= 0 ? this.plugin.settings.expenses[existingIndex] : undefined;
     if (existingIndex >= 0) {
       this.plugin.settings.expenses[existingIndex] = expense;
     } else {
       this.plugin.settings.expenses.push(expense);
     }
     await this.plugin.saveSettings();
+    await this.plugin.upsertEntryNote(expense, "expense", previous);
     this.display();
   }
 
   private async upsertIncome(income: Expense) {
+    if (this.hasDuplicateName(income)) {
+      const strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en;
+      new Notice(strings.duplicateName);
+      return;
+    }
     const existingIndex = this.plugin.settings.incomes.findIndex((e) => e.id === income.id);
+    const previous = existingIndex >= 0 ? this.plugin.settings.incomes[existingIndex] : undefined;
     if (existingIndex >= 0) {
       this.plugin.settings.incomes[existingIndex] = income;
     } else {
       this.plugin.settings.incomes.push(income);
     }
     await this.plugin.saveSettings();
+    await this.plugin.upsertEntryNote(income, "income", previous);
     this.display();
+  }
+
+  private hasDuplicateName(entry: Expense): boolean {
+    const key = entry.name.trim().toLowerCase();
+    if (!key) return false;
+    return this.getExistingNameKeys(entry.id).includes(key);
+  }
+
+  private getExistingNameKeys(excludeId?: string): string[] {
+    const entries = [...this.plugin.settings.expenses, ...this.plugin.settings.incomes];
+    return entries
+      .filter((entry) => entry.id !== excludeId)
+      .map((entry) => entry.name.trim().toLowerCase())
+      .filter(Boolean);
   }
 }

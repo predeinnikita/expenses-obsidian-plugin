@@ -1,4 +1,4 @@
-import { Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, WorkspaceLeaf, normalizePath, TFile, TFolder } from "obsidian";
 import { ExpensesView, ExpensesSettingTab } from "./components";
 import { CbrRateService } from "./services";
 import {
@@ -73,6 +73,79 @@ export default class ExpensesPlugin extends Plugin {
     });
   }
 
+  async upsertEntryNote(entry: Expense, type: "expense" | "income", previousEntry?: Expense) {
+    const notesPath = this.normalizeNotesPath();
+    if (notesPath) {
+      const ok = await this.ensureFolder(notesPath);
+      if (!ok) return;
+    }
+
+    const path = this.getEntryNotePath(entry, type, notesPath);
+    const content = this.buildEntryNoteContent(entry, type);
+    const existing = this.app.vault.getAbstractFileByPath(path);
+
+    try {
+      let targetFile: TFile | null = null;
+      if (previousEntry) {
+        const previousPath = this.getEntryNotePath(previousEntry, type, notesPath);
+        if (previousPath !== path) {
+          const byId = await this.findEntryNoteById(entry.id, notesPath);
+          const previousFile =
+            byId ??
+            (this.app.vault.getAbstractFileByPath(previousPath) instanceof TFile
+              ? (this.app.vault.getAbstractFileByPath(previousPath) as TFile)
+              : null);
+          if (previousFile) {
+            if (previousFile.path !== path) {
+              await this.app.vault.rename(previousFile, path);
+            }
+            targetFile = previousFile;
+          }
+        }
+      }
+      if (!targetFile && existing instanceof TFile) {
+        targetFile = existing;
+      }
+      if (targetFile) {
+        await this.app.vault.modify(targetFile, content);
+        return;
+      }
+      if (existing) {
+        new Notice(`Cannot write note: ${path} is a folder`);
+        return;
+      }
+      await this.app.vault.create(path, content);
+    } catch (err) {
+      console.error("[expenses] failed to save note", err);
+      new Notice("Failed to save expense/income note. Check console for details.");
+    }
+  }
+
+  async deleteEntryNote(entry: Expense, type: "expense" | "income") {
+    const notesPath = this.normalizeNotesPath();
+    const path = this.getEntryNotePath(entry, type, notesPath);
+    try {
+      const toDelete: TFile[] = [];
+      const byId = await this.findEntryNoteById(entry.id, notesPath);
+      if (byId) {
+        toDelete.push(byId);
+      }
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile && !toDelete.includes(existing)) {
+        toDelete.push(existing);
+      } else if (existing && !(existing instanceof TFile)) {
+        new Notice(`Cannot delete note: ${path} is a folder`);
+        return;
+      }
+      for (const file of toDelete) {
+        await this.app.vault.delete(file);
+      }
+    } catch (err) {
+      console.error("[expenses] failed to delete note", err);
+      new Notice("Failed to delete expense/income note. Check console for details.");
+    }
+  }
+
   getRecentMonths(): MonthRef[] {
     const result: MonthRef[] = [];
     const now = new Date();
@@ -130,5 +203,77 @@ export default class ExpensesPlugin extends Plugin {
       totals.push({ month, totalBase: total, breakdown });
     }
     return totals;
+  }
+
+  private normalizeNotesPath(): string {
+    const raw = this.settings.notesPath?.trim() ?? "";
+    return raw ? normalizePath(raw) : "";
+  }
+
+  private getEntryNotePath(entry: Expense, type: "expense" | "income", folder: string): string {
+    const safeName = this.sanitizeFileName(entry.name);
+    const fileName = `${safeName}.md`;
+    return folder ? normalizePath(`${folder}/${fileName}`) : fileName;
+  }
+
+  private buildEntryNoteContent(entry: Expense, type: "expense" | "income"): string {
+    const currency = entry.currency.toUpperCase();
+    const lines: string[] = [
+      "---",
+      `type: ${type}`,
+      `id: ${entry.id}`,
+      `name: ${JSON.stringify(entry.name)}`,
+      `amount: ${entry.amount}`,
+      `currency: ${currency}`,
+      `cadence: ${entry.cadence}`,
+    ];
+    if (entry.startMonth) {
+      lines.push(`start: ${entry.startMonth}`);
+    }
+    lines.push("---", "", `# ${entry.name}`, "", `- amount: ${entry.amount} ${currency}`, `- cadence: ${entry.cadence}`);
+    if (entry.startMonth) {
+      lines.push(`- start: ${entry.startMonth}`);
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  private async ensureFolder(path: string): Promise<boolean> {
+    const normalized = normalizePath(path);
+    if (!normalized) return true;
+    const parts = normalized.split("/").filter(Boolean);
+    let current = "";
+
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      const existing = this.app.vault.getAbstractFileByPath(current);
+      if (existing instanceof TFolder) continue;
+      if (existing) {
+        new Notice(`Cannot create notes folder: ${current} is a file`);
+        return false;
+      }
+      await this.app.vault.createFolder(current);
+    }
+    return true;
+  }
+
+  private sanitizeFileName(name: string): string {
+    const trimmed = name.trim();
+    const cleaned = trimmed.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ");
+    return cleaned || "entry";
+  }
+
+  private async findEntryNoteById(entryId: string, notesPath: string): Promise<TFile | null> {
+    const folder = normalizePath(notesPath ?? "");
+    const files = this.app.vault.getMarkdownFiles();
+    for (const file of files) {
+      if (folder && !file.path.startsWith(`${folder}/`)) continue;
+      const cache = this.app.metadataCache.getFileCache(file);
+      const id = cache?.frontmatter?.id;
+      if (typeof id === "string" && id === entryId) {
+        return file;
+      }
+    }
+    return null;
   }
 }

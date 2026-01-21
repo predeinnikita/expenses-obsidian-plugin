@@ -8,6 +8,7 @@ export class ExpenseModal extends Modal {
   private onSubmit: (expense: Expense) => void;
   private strings: Strings[keyof Strings];
   private mode: "expense" | "income";
+  private existingNames: string[];
 
   constructor(
     app: any,
@@ -15,21 +16,23 @@ export class ExpenseModal extends Modal {
     onSubmit: (expense: Expense) => void,
     strings: Strings[keyof Strings],
     mode: "expense" | "income" = "expense",
+    existingNames: string[] = [],
   ) {
     super(app);
     this.onSubmit = onSubmit;
     this.strings = strings;
     this.mode = mode;
-    this.data =
-      expense ??
-      ({
-        id: crypto.randomUUID?.() ?? `${Date.now()}`,
-        name: "",
-        amount: 0,
-        currency: "RUB",
-        cadence: "monthly",
-        startMonth: "",
-      } satisfies Expense);
+    this.existingNames = existingNames;
+    this.data = expense
+      ? { ...expense }
+      : ({
+          id: crypto.randomUUID?.() ?? `${Date.now()}`,
+          name: "",
+          amount: 0,
+          currency: "RUB",
+          cadence: "monthly",
+          startMonth: "",
+        } satisfies Expense);
   }
 
   onOpen() {
@@ -86,6 +89,11 @@ export class ExpenseModal extends Modal {
     submit.addEventListener("click", () => {
       if (!this.data.name || !this.data.amount || !this.data.currency) {
         new Notice(strings.missingFields);
+        return;
+      }
+      const nameKey = this.data.name.trim().toLowerCase();
+      if (nameKey && this.existingNames.includes(nameKey)) {
+        new Notice(strings.duplicateName);
         return;
       }
       this.close();

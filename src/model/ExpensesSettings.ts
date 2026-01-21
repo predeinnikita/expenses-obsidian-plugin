@@ -7,4 +7,5 @@ export interface ExpensesSettings {
   monthsToShow: number;
   baseCurrency: string;
   language: LanguageCode;
+  notesPath: string;
 }

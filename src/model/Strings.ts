@@ -26,6 +26,8 @@ export type Strings = Record<
     baseCurrencyDesc: string;
     monthsToShow: string;
     monthsToShowDesc: string;
+    notesPath: string;
+    notesPathDesc: string;
     expensesList: string;
     incomesList: string;
     add: string;
@@ -43,6 +45,7 @@ export type Strings = Record<
     startDesc: string;
     save: string;
     missingFields: string;
+    duplicateName: string;
     month: string;
     total: string;
     language: string;

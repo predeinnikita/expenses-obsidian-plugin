@@ -40,6 +40,10 @@ export class ExpensesView extends ItemView {
     return strings.heading;
   }
 
+  getIcon() {
+    return "pie-chart";
+  }
+
   async onOpen() {
     await this.render();
   }
