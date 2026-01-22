@@ -56,10 +56,15 @@ export class ExpenseModal extends Modal {
         }),
     );
 
-    new Setting(contentEl).setName(strings.currency).addText((text) =>
-      text
-        .setPlaceholder("USD, EUR, RUB")
-        .setValue(this.data.currency)
+    new Setting(contentEl).setName(strings.currency).addDropdown((dropdown) =>
+      dropdown
+        .addOptions({
+          USD: "USD",
+          EUR: "EUR",
+          AMD: "AMD",
+          RUB: "RUB",
+        })
+        .setValue(this.data.currency.toUpperCase())
         .onChange((value) => (this.data.currency = value.toUpperCase())),
     );
 

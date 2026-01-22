@@ -20,6 +20,7 @@ export type Strings = Record<
     totalsTitle: (currency: string) => string;
     trendTitle: (currency: string) => string;
     waterfallLabels: { income: string; expense: string; balance: string };
+    ofIncome: string;
     pieTitle: (month: string) => string;
     settingsTitle: string;
     baseCurrency: string;

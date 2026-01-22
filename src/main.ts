@@ -11,6 +11,7 @@ import {
   ExpenseBreakdown,
   MonthRef
 } from "./model";
+import type { ExpenseCadence } from "./model/ExpenseCadence";
 
 export default class ExpensesPlugin extends Plugin {
   settings: ExpensesSettings = DEFAULT_SETTINGS;
@@ -60,7 +61,12 @@ export default class ExpensesPlugin extends Plugin {
 
   async loadSettings() {
     const loaded = await this.loadData();
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded ?? {});
+    this.settings = {
+      monthsToShow: loaded?.monthsToShow ?? DEFAULT_SETTINGS.monthsToShow,
+      baseCurrency: loaded?.baseCurrency ?? DEFAULT_SETTINGS.baseCurrency,
+      language: loaded?.language ?? DEFAULT_SETTINGS.language,
+      notesPath: loaded?.notesPath ?? DEFAULT_SETTINGS.notesPath,
+    };
   }
 
   async saveSettings() {
@@ -174,7 +180,7 @@ export default class ExpensesPlugin extends Plugin {
     return entry.cadence === "monthly" ? entry.amount : entry.amount / 12;
   }
 
-  async calculateMonthlyTotals(months: MonthRef[], items: Expense[] = this.settings.expenses): Promise<MonthlyTotal[]> {
+  async calculateMonthlyTotals(months: MonthRef[], items: Expense[]): Promise<MonthlyTotal[]> {
     const baseCurrency = this.settings.baseCurrency?.toUpperCase() || "RUB";
     const totals: MonthlyTotal[] = [];
     for (const month of months) {
@@ -203,6 +209,34 @@ export default class ExpensesPlugin extends Plugin {
       totals.push({ month, totalBase: total, breakdown });
     }
     return totals;
+  }
+
+  async loadEntriesFromNotes(): Promise<{ expenses: Expense[]; incomes: Expense[] }> {
+    const folder = this.normalizeNotesPath();
+    const files = this.app.vault.getMarkdownFiles();
+    const expenses = new Map<string, Expense>();
+    const incomes = new Map<string, Expense>();
+
+    for (const file of files) {
+      if (folder && !file.path.startsWith(`${folder}/`)) continue;
+      const cache = this.app.metadataCache.getFileCache(file);
+      const frontmatter = cache?.frontmatter;
+      if (!frontmatter) continue;
+      const type = frontmatter.type;
+      if (type !== "expense" && type !== "income") continue;
+      const entry = this.parseEntryFromFrontmatter(frontmatter, file);
+      if (!entry) continue;
+      if (type === "expense") {
+        expenses.set(entry.id, entry);
+      } else {
+        incomes.set(entry.id, entry);
+      }
+    }
+
+    return {
+      expenses: [...expenses.values()],
+      incomes: [...incomes.values()],
+    };
   }
 
   private normalizeNotesPath(): string {
@@ -275,5 +309,36 @@ export default class ExpensesPlugin extends Plugin {
       }
     }
     return null;
+  }
+
+  private parseEntryFromFrontmatter(frontmatter: any, file: TFile): Expense | null {
+    const idRaw = typeof frontmatter.id === "string" ? frontmatter.id.trim() : "";
+    const id = idRaw || `note:${file.path}`;
+    const nameRaw = typeof frontmatter.name === "string" ? frontmatter.name : file.basename;
+    const name = typeof nameRaw === "string" ? nameRaw.trim() : "";
+    const amountRaw = frontmatter.amount;
+    const amount = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
+    const currencyRaw = typeof frontmatter.currency === "string" ? frontmatter.currency : "";
+    const currency = currencyRaw.trim().toUpperCase();
+    const cadenceRaw = typeof frontmatter.cadence === "string" ? frontmatter.cadence : "";
+    const cadence = cadenceRaw === "monthly" || cadenceRaw === "yearly" ? cadenceRaw : "";
+    const startRaw =
+      typeof frontmatter.start === "string"
+        ? frontmatter.start
+        : typeof frontmatter.startMonth === "string"
+          ? frontmatter.startMonth
+          : "";
+    const startMonth = startRaw ? startRaw.trim() : "";
+
+    if (!name || !Number.isFinite(amount) || !currency || !cadence) return null;
+
+    return {
+      id,
+      name,
+      amount,
+      currency,
+      cadence: cadence as ExpenseCadence,
+      startMonth: startMonth || undefined,
+    };
   }
 }

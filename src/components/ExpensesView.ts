@@ -58,12 +58,11 @@ export class ExpensesView extends ItemView {
     const baseCurrency = (this.plugin.settings.baseCurrency ?? "RUB").toUpperCase();
     const strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en;
     const months = this.plugin.getRecentMonths();
-    const hasExpenses = this.plugin.settings.expenses.length > 0;
-    const hasIncomes = this.plugin.settings.incomes.length > 0;
-    const expenseTotals = hasExpenses ? await this.plugin.calculateMonthlyTotals(months) : [];
-    const incomeTotals = hasIncomes
-      ? await this.plugin.calculateMonthlyTotals(months, this.plugin.settings.incomes)
-      : [];
+    const entries = await this.plugin.loadEntriesFromNotes();
+    const hasExpenses = entries.expenses.length > 0;
+    const hasIncomes = entries.incomes.length > 0;
+    const expenseTotals = hasExpenses ? await this.plugin.calculateMonthlyTotals(months, entries.expenses) : [];
+    const incomeTotals = hasIncomes ? await this.plugin.calculateMonthlyTotals(months, entries.incomes) : [];
     this.cachedExpenseTotals = expenseTotals;
     const filteredTotals = this.getFilteredExpenseTotals();
     this.cachedLatestExpense = filteredTotals[0];
@@ -393,9 +392,14 @@ export class ExpensesView extends ItemView {
           const value = bar?.data?.value ?? bar?.value ?? 0;
           const name = bar?.name ?? "";
           const formatted = `${value >= 0 ? "" : "-"}${Math.abs(value).toFixed(2)}`;
-          return `${name}: ${baseCurrency} ${formatted}`;
+          let suffix = "";
+          if ((name === labels[1] || name === labels[2]) && incomeValue !== 0) {
+            const percent = Math.abs((value / incomeValue) * 100);
+            suffix = ` (${percent.toFixed(1)}% ${this.cachedStrings.ofIncome})`;
+          }
+          return `${name}: ${baseCurrency} ${formatted}${suffix}`;
         },
-        textStyle: { color: textColor },
+        textStyle: { color: "#111827" },
       },
       grid: { left: 50, right: 24, top: 40, bottom: 50 },
       xAxis: {
@@ -456,7 +460,7 @@ export class ExpensesView extends ItemView {
           const percent = params.percent ?? 0;
           return `${name}: ${baseCurrency} ${value} (${percent}%)`;
         },
-        textStyle: { color: textColor },
+        textStyle: { color: "#111827" },
       },
       legend: {
         orient: "horizontal",
