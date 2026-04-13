@@ -1,0 +1,117 @@
+import { Modal, Notice, Setting } from "obsidian";
+import type { ManualExpense } from "../model/ManualExpense";
+import type { Strings } from "../model/Strings";
+
+export class ManualExpenseModal extends Modal {
+  private data: ManualExpense;
+  private amountValue: string;
+
+  constructor(
+    app: any,
+    expense: ManualExpense | null,
+    private readonly onSubmit: (expense: ManualExpense) => void,
+    private readonly strings: Strings[keyof Strings],
+    suggestedMonthKey: string,
+  ) {
+    super(app);
+    const defaultDate = `${suggestedMonthKey}-01`;
+    this.data = expense ?? {
+      id: crypto.randomUUID?.() ?? `${Date.now()}`,
+      type: "manual-expense",
+      date: defaultDate,
+      category: "",
+      amount: 0,
+      currency: "AMD",
+      month: suggestedMonthKey,
+      year: Number(suggestedMonthKey.slice(0, 4)),
+      monthIndex: Number(suggestedMonthKey.slice(5, 7)) - 1,
+      notePath: "",
+    };
+    this.amountValue = this.data.amount ? String(this.data.amount) : "";
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h3", { text: this.strings.manualExpenseModalTitle });
+
+    new Setting(contentEl).setName(this.strings.manualExpenseDate).addText((text) =>
+      text
+        .setPlaceholder("2026-04-13")
+        .setValue(this.data.date)
+        .onChange((value) => (this.data.date = value.trim())),
+    );
+
+    new Setting(contentEl).setName(this.strings.manualExpenseCategory).addText((text) =>
+      text.setValue(this.data.category).onChange((value) => (this.data.category = value.trim())),
+    );
+
+    new Setting(contentEl).setName(this.strings.amount).addText((text) =>
+      text
+        .setPlaceholder("1000")
+        .setValue(this.amountValue)
+        .onChange((value) => {
+          this.amountValue = value.trim();
+        }),
+    );
+
+    new Setting(contentEl).setName(this.strings.currency).addDropdown((dropdown) =>
+      dropdown
+        .addOptions({
+          AMD: "AMD",
+          EUR: "EUR",
+          RUB: "RUB",
+          USD: "USD",
+        })
+        .setValue(this.data.currency.toUpperCase())
+        .onChange((value) => (this.data.currency = value.toUpperCase())),
+    );
+
+    const footer = contentEl.createDiv({ cls: "modal-button-container" });
+    const submit = footer.createEl("button", { text: this.strings.save });
+    submit.addEventListener("click", () => {
+      if (!this.isValidDate(this.data.date)) {
+        new Notice(this.strings.manualExpenseInvalidDate);
+        return;
+      }
+      if (!this.data.category.trim()) {
+        new Notice(this.strings.manualExpenseEmptyCategory);
+        return;
+      }
+      const amount = Number(this.amountValue);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        new Notice(this.strings.manualExpenseInvalidAmount);
+        return;
+      }
+
+      const month = this.data.date.slice(0, 7);
+      this.close();
+      this.onSubmit({
+        ...this.data,
+        category: this.data.category.trim(),
+        date: this.data.date,
+        amount,
+        month,
+        year: Number(month.slice(0, 4)),
+        monthIndex: Number(month.slice(5, 7)) - 1,
+      });
+    });
+  }
+
+  private isValidDate(value: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+    return (
+      Number.isInteger(year) &&
+      Number.isInteger(month) &&
+      Number.isInteger(day) &&
+      date.getFullYear() === year &&
+      date.getMonth() === month - 1 &&
+      date.getDate() === day
+    );
+  }
+}

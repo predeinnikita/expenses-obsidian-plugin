@@ -9,6 +9,27 @@
   margin-bottom: 12px;
 }
 
+.expenses-page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.expenses-header-copy {
+  min-width: 0;
+}
+
+.expenses-page-nav {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.expenses-page-nav button {
+  min-width: 36px;
+}
+
 .expenses-subtitle {
   color: var(--text-muted);
   margin-top: 4px;
@@ -92,4 +113,215 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+.monthly-page-toolbar,
+.monthly-page-card,
+.monthly-page-section {
+  margin-bottom: 12px;
+}
+
+.monthly-page-status {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.monthly-page-status-card {
+  min-width: 0;
+}
+
+.monthly-page-empty-card {
+  border-style: dashed;
+}
+
+.monthly-page-diagnostics-card {
+  border-color: var(--text-warning);
+}
+
+.monthly-page-diagnostics-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+}
+
+.monthly-page-toolbar-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.monthly-page-selectors {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.monthly-page-selector,
+.monthly-savings-field,
+.monthly-savings-month-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.monthly-savings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.monthly-savings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 4px;
+}
+
+.monthly-savings-row-remove,
+.monthly-savings-row-add {
+  align-self: end;
+}
+
+.monthly-page-selector label,
+.monthly-page-categories label,
+.monthly-savings-field label,
+.monthly-savings-month-field label,
+.monthly-page-card-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.monthly-page-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.monthly-page-categories {
+  margin-top: 12px;
+}
+
+.monthly-page-category-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.monthly-page-category-buttons button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.monthly-page-empty {
+  color: var(--text-muted);
+  align-self: center;
+}
+
+.monthly-page-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.monthly-page-analytics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.monthly-page-analytics-card,
+.monthly-page-growth-card {
+  min-width: 0;
+}
+
+.monthly-page-growth-card {
+  grid-column: 1 / -1;
+}
+
+.monthly-page-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+.monthly-page-balance-list,
+.monthly-page-converted-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.monthly-page-balance-row,
+.monthly-page-converted-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.monthly-page-balance-row:last-child,
+.monthly-page-converted-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.monthly-page-balance-currency,
+.monthly-page-converted-value {
+  font-weight: 600;
+}
+
+.monthly-page-balance-amount,
+.monthly-page-converted-value {
+  text-align: right;
+}
+
+.monthly-page-converted-label,
+.monthly-page-empty-state {
+  color: var(--text-muted);
+}
+
+.monthly-page-base-total {
+  margin-bottom: 12px;
+}
+
+.monthly-page-base-total strong {
+  display: block;
+  font-size: 22px;
+}
+
+.monthly-page-echart {
+  height: 340px;
+}
+
+.monthly-page-growth-echart {
+  height: 280px;
+}
+
+@media (max-width: 720px) {
+  .expenses-page-header,
+  .monthly-page-toolbar-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .expenses-page-nav {
+    justify-content: flex-end;
+  }
+
+  .monthly-savings-row {
+    grid-template-columns: 1fr;
+  }
+
+  .monthly-savings-row-remove {
+    justify-self: start;
+  }
 }

@@ -4,14 +4,21 @@ import type ExpensesPlugin from "../main";
 import { EXPENSES_VIEW_TYPE } from "../model/constants";
 import type { MonthlyTotal } from "../model/MonthlyTotal";
 import type { ExpenseBreakdown } from "../model/ExpenseBreakdown";
+import type { MonthlyExpensesPageData } from "../model/MonthlyExpensesPageData";
+import type { MonthlyExpensesPageFilters } from "../model/MonthlyExpensesPageFilters";
 import { STRINGS } from "../model/translations";
+import { ManualExpenseModal } from "./ManualExpenseModal";
+import { MonthlySavingsModal } from "./MonthlySavingsModal";
 
 type SortKey = "name" | "cadence" | "amount" | "baseValue";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
+type ViewPage = "dashboard" | "monthly";
 
 export class ExpensesView extends ItemView {
   private waterfallChart?: echarts.ECharts;
   private pieChart?: echarts.ECharts;
+  private monthlyExpensePieChart?: echarts.ECharts;
+  private monthlySavingsGrowthChart?: echarts.ECharts;
   private pieLegendHandlerAttached = false;
   private expenseTableContainer?: HTMLElement;
   private incomeTableContainer?: HTMLElement;
@@ -26,6 +33,8 @@ export class ExpensesView extends ItemView {
   private isSyncingLegendSelection = false;
   private expenseSort: SortState = null;
   private incomeSort: SortState = null;
+  private currentPage: ViewPage = "dashboard";
+  private monthlyPageFilters?: Partial<MonthlyExpensesPageFilters>;
 
   constructor(leaf: WorkspaceLeaf, private plugin: ExpensesPlugin) {
     super(leaf);
@@ -55,8 +64,37 @@ export class ExpensesView extends ItemView {
     container.empty();
     container.addClass("expenses-view");
 
-    const baseCurrency = (this.plugin.settings.baseCurrency ?? "RUB").toUpperCase();
     const strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en;
+    this.cachedStrings = strings;
+
+    if (this.currentPage === "monthly") {
+      await this.renderMonthlyPage(container, strings);
+      return;
+    }
+
+    await this.renderDashboardPage(container, strings);
+  }
+
+  onPaneMenu() {
+    this.waterfallChart?.resize();
+    this.pieChart?.resize();
+    this.monthlyExpensePieChart?.resize();
+    this.monthlySavingsGrowthChart?.resize();
+  }
+
+  async onClose() {
+    this.disposeCharts();
+  }
+
+  onResize() {
+    this.waterfallChart?.resize();
+    this.pieChart?.resize();
+    this.monthlyExpensePieChart?.resize();
+    this.monthlySavingsGrowthChart?.resize();
+  }
+
+  private async renderDashboardPage(container: HTMLElement, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const baseCurrency = (this.plugin.settings.baseCurrency ?? "RUB").toUpperCase();
     const months = this.plugin.getRecentMonths();
     const entries = await this.plugin.loadEntriesFromNotes();
     const hasExpenses = entries.expenses.length > 0;
@@ -68,19 +106,11 @@ export class ExpensesView extends ItemView {
     this.cachedLatestExpense = filteredTotals[0];
     this.cachedLatestIncome = incomeTotals[0];
     this.cachedBaseCurrency = baseCurrency;
-    this.cachedStrings = strings;
 
-    const heading = container.createEl("div", { cls: "expenses-header" });
-    heading.createEl("h2", { text: strings.heading });
-    heading.createEl("p", {
-      text: strings.subtitle,
-      cls: "expenses-subtitle",
-    });
+    this.renderPageHeader(container, strings.heading, strings.subtitle, strings);
 
     if (!hasExpenses && !hasIncomes) {
-      heading.createEl("p", {
-        text: strings.addExpensesHint,
-      });
+      container.createEl("p", { text: strings.addExpensesHint });
       return;
     }
 
@@ -106,9 +136,383 @@ export class ExpensesView extends ItemView {
     }
   }
 
-  onPaneMenu() {
-    this.waterfallChart?.resize();
-    this.pieChart?.resize();
+  private async renderMonthlyPage(container: HTMLElement, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const pageData = await this.plugin.buildMonthlyExpensesPageData(this.monthlyPageFilters);
+    this.monthlyPageFilters = pageData.filters;
+
+    this.renderPageHeader(container, strings.monthlyPageTitle, strings.monthlyPageSubtitle, strings);
+    this.renderMonthlyPageToolbar(container, pageData, strings);
+    this.renderMonthlyPageStatus(container, pageData, strings);
+    this.renderMonthlyPageSummary(container, pageData, strings);
+    this.renderMonthlyPageAnalytics(container, pageData, strings);
+    this.renderMonthlyExpensesTable(container, pageData, strings);
+    this.renderMonthlySavingsTable(container, pageData, strings);
+  }
+
+  private renderPageHeader(container: HTMLElement, title: string, subtitle: string, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const heading = container.createEl("div", { cls: "expenses-header expenses-page-header" });
+    const copy = heading.createDiv({ cls: "expenses-header-copy" });
+    copy.createEl("h2", { text: title });
+    copy.createEl("p", {
+      text: subtitle,
+      cls: "expenses-subtitle",
+    });
+
+    const nav = heading.createDiv({ cls: "expenses-page-nav" });
+    const previousButton = nav.createEl("button", {
+      text: "←",
+      attr: { "aria-label": strings.previousPage, title: strings.previousPage },
+    });
+    previousButton.disabled = this.currentPage === "dashboard";
+    previousButton.addEventListener("click", async () => {
+      this.currentPage = "dashboard";
+      await this.render();
+    });
+
+    const nextButton = nav.createEl("button", {
+      text: "→",
+      attr: { "aria-label": strings.nextPage, title: strings.nextPage },
+    });
+    nextButton.disabled = this.currentPage === "monthly";
+    nextButton.addEventListener("click", async () => {
+      this.currentPage = "monthly";
+      this.monthlyPageFilters ??= this.plugin.getDefaultMonthlyExpensesFilters();
+      await this.render();
+    });
+  }
+
+  private renderMonthlyPageToolbar(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const toolbar = container.createDiv({ cls: "monthly-page-toolbar chart" });
+    const topRow = toolbar.createDiv({ cls: "monthly-page-toolbar-top" });
+    const filtersRow = topRow.createDiv({ cls: "monthly-page-selectors" });
+
+    const yearField = filtersRow.createDiv({ cls: "monthly-page-selector" });
+    yearField.createEl("label", { text: strings.yearFilterLabel });
+    const yearSelect = yearField.createEl("select");
+    pageData.availableYears.forEach((year) => {
+      const option = yearSelect.createEl("option", { text: String(year) });
+      option.value = String(year);
+    });
+    yearSelect.value = String(pageData.filters.selectedYear);
+    yearSelect.addEventListener("change", async () => {
+      const selectedYear = Number(yearSelect.value);
+      const selectedMonthKey = `${selectedYear}-${String(pageData.filters.selectedMonthIndex + 1).padStart(2, "0")}`;
+      this.monthlyPageFilters = {
+        ...pageData.filters,
+        selectedYear,
+        selectedMonthKey,
+      };
+      await this.render();
+    });
+
+    const monthField = filtersRow.createDiv({ cls: "monthly-page-selector" });
+    monthField.createEl("label", { text: strings.monthFilterLabel });
+    const monthSelect = monthField.createEl("select");
+    pageData.availableMonths.forEach((monthKey) => {
+      const option = monthSelect.createEl("option", { text: this.formatMonthKey(monthKey, strings.locale) });
+      option.value = monthKey;
+    });
+    monthSelect.value = pageData.filters.selectedMonthKey;
+    monthSelect.addEventListener("change", async () => {
+      const selectedMonthKey = monthSelect.value;
+      this.monthlyPageFilters = {
+        ...pageData.filters,
+        selectedYear: Number(selectedMonthKey.slice(0, 4)),
+        selectedMonthIndex: Number(selectedMonthKey.slice(5, 7)) - 1,
+        selectedMonthKey,
+      };
+      await this.render();
+    });
+
+    const actions = topRow.createDiv({ cls: "monthly-page-actions" });
+    const addExpenseButton = actions.createEl("button", { text: strings.addExpenseAction });
+    addExpenseButton.addEventListener("click", () => {
+      new ManualExpenseModal(
+        this.app,
+        null,
+        async (expense) => {
+          await this.plugin.upsertManualExpenseNote(expense);
+          this.monthlyPageFilters = {
+            ...pageData.filters,
+            selectedYear: expense.year,
+            selectedMonthIndex: expense.monthIndex,
+            selectedMonthKey: expense.month,
+          };
+          await this.render();
+        },
+        strings,
+        pageData.filters.selectedMonthKey,
+      ).open();
+    });
+
+    const addSavingsButton = actions.createEl("button", { text: strings.addSavingsAction });
+    addSavingsButton.addEventListener("click", () => {
+      new MonthlySavingsModal(
+        this.app,
+        pageData.snapshot,
+        pageData.filters.selectedMonthKey,
+        async (monthKey, balances) => {
+          await this.plugin.mergeMonthlySavingsSnapshotBalances(monthKey, balances);
+          this.monthlyPageFilters = {
+            ...pageData.filters,
+            selectedYear: Number(monthKey.slice(0, 4)),
+            selectedMonthIndex: Number(monthKey.slice(5, 7)) - 1,
+            selectedMonthKey: monthKey,
+          };
+          await this.render();
+        },
+        strings,
+      ).open();
+    });
+
+    const categoriesSection = toolbar.createDiv({ cls: "monthly-page-categories" });
+    categoriesSection.createEl("label", { text: strings.categoriesFilterLabel });
+    const categoryButtons = categoriesSection.createDiv({ cls: "monthly-page-category-buttons" });
+
+    const allSelected =
+      !pageData.categories.length ||
+      pageData.filters.selectedCategories.length === pageData.categories.length;
+    const allButton = categoryButtons.createEl("button", {
+      text: strings.allCategoriesLabel,
+      cls: allSelected ? "is-active" : "",
+    });
+    allButton.addEventListener("click", async () => {
+      this.monthlyPageFilters = {
+        ...pageData.filters,
+        selectedCategories: [],
+      };
+      await this.render();
+    });
+
+    if (!pageData.categories.length) {
+      const empty = categoryButtons.createSpan({ cls: "monthly-page-empty", text: strings.monthlyPageNoCategories });
+      empty.ariaDisabled = "true";
+      return;
+    }
+
+    pageData.categories.forEach((category) => {
+      const selected = pageData.filters.selectedCategories.includes(category);
+      const button = categoryButtons.createEl("button", {
+        text: category,
+        cls: selected ? "is-active" : "",
+      });
+      button.addEventListener("click", async () => {
+        const nextCategories = selected
+          ? pageData.filters.selectedCategories.filter((item) => item !== category)
+          : [...pageData.filters.selectedCategories, category];
+        this.monthlyPageFilters = {
+          ...pageData.filters,
+          selectedCategories: nextCategories,
+        };
+        await this.render();
+      });
+    });
+  }
+
+  private renderMonthlyPageSummary(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const baseCurrency = (this.plugin.settings.baseCurrency ?? "RUB").toUpperCase();
+    const totalExpenses = pageData.categoryTotals.reduce((sum, item) => sum + item.baseAmount, 0);
+    const summary = container.createDiv({ cls: "monthly-page-summary" });
+
+    const monthCard = summary.createDiv({ cls: "chart monthly-page-card" });
+    monthCard.createEl("div", { cls: "monthly-page-card-label", text: strings.monthlyPageSelectedMonth });
+    monthCard.createEl("strong", {
+      text: this.formatMonthKey(pageData.filters.selectedMonthKey, strings.locale),
+    });
+
+    const expenseCard = summary.createDiv({ cls: "chart monthly-page-card" });
+    expenseCard.createEl("div", { cls: "monthly-page-card-label", text: strings.monthlyPageTotalExpenses(baseCurrency) });
+    expenseCard.createEl("strong", { text: `${totalExpenses.toFixed(2)} ${baseCurrency}` });
+
+    const savingsCard = summary.createDiv({ cls: "chart monthly-page-card" });
+    savingsCard.createEl("div", { cls: "monthly-page-card-label", text: strings.monthlyPageSavingsCurrenciesCount });
+    savingsCard.createEl("strong", {
+      text: pageData.snapshot ? String(Object.keys(pageData.snapshot.balances).length) : "0",
+    });
+
+    const totalSavingsCard = summary.createDiv({ cls: "chart monthly-page-card" });
+    totalSavingsCard.createEl("div", {
+      cls: "monthly-page-card-label",
+      text: strings.monthlyPageSavingsBaseTotalTitle(baseCurrency),
+    });
+    totalSavingsCard.createEl("strong", {
+      text: pageData.savingsBaseTotal
+        ? `${pageData.savingsBaseTotal.total.toFixed(2)} ${baseCurrency}`
+        : `0.00 ${baseCurrency}`,
+    });
+  }
+
+  private renderMonthlyPageStatus(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const messages: string[] = [];
+
+    if (pageData.diagnostics.invalidManualExpenseNotes > 0) {
+      messages.push(strings.monthlyPageInvalidExpenseNotes(pageData.diagnostics.invalidManualExpenseNotes));
+    }
+    if (pageData.diagnostics.invalidMonthlySavingsNotes > 0) {
+      messages.push(strings.monthlyPageInvalidSavingsNotes(pageData.diagnostics.invalidMonthlySavingsNotes));
+    }
+    if (pageData.diagnostics.duplicateManualExpenseIds.length > 0) {
+      messages.push(strings.monthlyPageDuplicateExpenseNotes(pageData.diagnostics.duplicateManualExpenseIds.length));
+    }
+    if (pageData.diagnostics.duplicateSavingsMonths.length > 0) {
+      messages.push(strings.monthlyPageDuplicateSavingsNotes(pageData.diagnostics.duplicateSavingsMonths.length));
+    }
+
+    const hasMonthData = pageData.categories.length > 0 || !!pageData.snapshot;
+    if (!messages.length && hasMonthData) {
+      return;
+    }
+
+    const status = container.createDiv({ cls: "monthly-page-status" });
+
+    if (!hasMonthData) {
+      const emptyCard = status.createDiv({ cls: "chart monthly-page-status-card monthly-page-empty-card" });
+      emptyCard.createEl("h3", { text: strings.monthlyPageEmptyStateTitle });
+      emptyCard.createEl("p", { text: strings.monthlyPageEmptyStateDescription });
+    }
+
+    if (messages.length) {
+      const diagnosticsCard = status.createDiv({ cls: "chart monthly-page-status-card monthly-page-diagnostics-card" });
+      diagnosticsCard.createEl("h3", { text: strings.monthlyPageDiagnosticsTitle });
+      const list = diagnosticsCard.createEl("ul", { cls: "monthly-page-diagnostics-list" });
+      messages.forEach((message) => {
+        list.createEl("li", { text: message });
+      });
+    }
+  }
+
+  private renderMonthlyPageAnalytics(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const analytics = container.createDiv({ cls: "monthly-page-analytics" });
+    const textColor = getTextColor();
+    const baseCurrency = (this.plugin.settings.baseCurrency ?? "RUB").toUpperCase();
+
+    const expenseCard = analytics.createDiv({ cls: "chart echarts-card monthly-page-analytics-card" });
+    expenseCard.createEl("h3", { text: strings.monthlyPageExpenseBreakdownTitle(baseCurrency) });
+    if (!pageData.categoryTotals.length) {
+      expenseCard.createEl("p", { text: strings.monthlyPageNoExpenseAnalytics, cls: "monthly-page-empty-state" });
+    } else {
+      const expenseChartEl = expenseCard.createDiv({ cls: "echart monthly-page-echart" });
+      this.monthlyExpensePieChart?.dispose();
+      this.monthlyExpensePieChart = echarts.init(expenseChartEl);
+      this.monthlyExpensePieChart.setOption(
+        this.getMonthlyExpenseCategoryPieOption(pageData, baseCurrency, textColor),
+      );
+    }
+
+    const balancesCard = analytics.createDiv({ cls: "chart monthly-page-analytics-card" });
+    balancesCard.createEl("h3", { text: strings.monthlyPageSavingsBalancesTitle });
+    this.renderMonthlySavingsBalances(balancesCard, pageData, strings);
+
+    const totalCard = analytics.createDiv({ cls: "chart monthly-page-analytics-card" });
+    totalCard.createEl("h3", { text: strings.monthlyPageSavingsBaseTotalTitle(baseCurrency) });
+    this.renderMonthlySavingsBaseTotal(totalCard, pageData, strings);
+
+    const growthCard = analytics.createDiv({ cls: "chart echarts-card monthly-page-analytics-card monthly-page-growth-card" });
+    growthCard.createEl("h3", { text: strings.monthlyPageSavingsGrowthTitle(baseCurrency) });
+    if (!pageData.savingsGrowthSeries.length) {
+      growthCard.createEl("p", { text: strings.monthlyPageNoSavingsAnalytics, cls: "monthly-page-empty-state" });
+    } else {
+      const growthChartEl = growthCard.createDiv({ cls: "echart monthly-page-echart monthly-page-growth-echart" });
+      this.monthlySavingsGrowthChart?.dispose();
+      this.monthlySavingsGrowthChart = echarts.init(growthChartEl);
+      this.monthlySavingsGrowthChart.setOption(
+        this.getMonthlySavingsGrowthOption(pageData, baseCurrency, textColor),
+      );
+    }
+  }
+
+  private renderMonthlySavingsBalances(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    if (!pageData.snapshot || !Object.keys(pageData.snapshot.balances).length) {
+      container.createEl("p", { text: strings.monthlyPageNoSavingsAnalytics, cls: "monthly-page-empty-state" });
+      return;
+    }
+
+    const list = container.createDiv({ cls: "monthly-page-balance-list" });
+    Object.entries(pageData.snapshot.balances)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .forEach(([currency, amount]) => {
+        const row = list.createDiv({ cls: "monthly-page-balance-row" });
+        row.createSpan({ cls: "monthly-page-balance-currency", text: currency.toUpperCase() });
+        row.createSpan({ cls: "monthly-page-balance-amount", text: amount.toFixed(2) });
+      });
+  }
+
+  private renderMonthlySavingsBaseTotal(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const baseCurrency = (this.plugin.settings.baseCurrency ?? "RUB").toUpperCase();
+    if (!pageData.savingsBaseTotal) {
+      container.createEl("p", { text: strings.monthlyPageNoSavingsAnalytics, cls: "monthly-page-empty-state" });
+      return;
+    }
+
+    const total = container.createDiv({ cls: "monthly-page-base-total" });
+    total.createEl("strong", {
+      text: `${pageData.savingsBaseTotal.total.toFixed(2)} ${baseCurrency}`,
+    });
+
+    const breakdown = container.createDiv({ cls: "monthly-page-converted-list" });
+    pageData.savingsBaseTotal.convertedBalances.forEach((item) => {
+      const row = breakdown.createDiv({ cls: "monthly-page-converted-row" });
+      row.createSpan({
+        cls: "monthly-page-converted-label",
+        text: strings.monthlyPageConvertedFromLabel(item.currency, baseCurrency),
+      });
+      row.createSpan({
+        cls: "monthly-page-converted-value",
+        text: `${item.baseValue.toFixed(2)} ${baseCurrency}`,
+      });
+    });
+  }
+
+  private renderMonthlyExpensesTable(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const section = container.createDiv({ cls: "monthly-page-section" });
+    section.createEl("h3", { text: strings.monthlyPageExpensesTitle });
+
+    if (!pageData.expenses.length) {
+      section.createEl("p", { text: strings.monthlyPageNoExpenses });
+      return;
+    }
+
+    const table = section.createEl("table", { cls: "expenses-table" });
+    const thead = table.createEl("thead");
+    const headerRow = thead.createEl("tr");
+    headerRow.createEl("th", { text: strings.manualExpenseDate });
+    headerRow.createEl("th", { text: strings.manualExpenseCategory });
+    headerRow.createEl("th", { text: strings.amount });
+    headerRow.createEl("th", { text: strings.currency });
+
+    const tbody = table.createEl("tbody");
+    pageData.expenses.forEach((expense) => {
+      const row = tbody.createEl("tr");
+      row.createEl("td", { text: expense.date });
+      row.createEl("td", { text: expense.category });
+      row.createEl("td", { text: expense.amount.toFixed(2) });
+      row.createEl("td", { text: expense.currency.toUpperCase() });
+    });
+  }
+
+  private renderMonthlySavingsTable(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
+    const section = container.createDiv({ cls: "monthly-page-section" });
+    section.createEl("h3", { text: strings.monthlyPageSavingsTitle });
+
+    if (!pageData.snapshot) {
+      section.createEl("p", { text: strings.monthlyPageNoSavings });
+      return;
+    }
+
+    const table = section.createEl("table", { cls: "expenses-table" });
+    const thead = table.createEl("thead");
+    const headerRow = thead.createEl("tr");
+    headerRow.createEl("th", { text: strings.monthlySavingsCurrency });
+    headerRow.createEl("th", { text: strings.monthlySavingsAmount });
+
+    const tbody = table.createEl("tbody");
+    Object.entries(pageData.snapshot.balances)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .forEach(([currency, amount]) => {
+        const row = tbody.createEl("tr");
+        row.createEl("td", { text: currency });
+        row.createEl("td", { text: amount.toFixed(2) });
+      });
   }
 
   private renderExpenseTable(
@@ -270,15 +674,10 @@ export class ExpensesView extends ItemView {
     }
     this.pieChart?.dispose();
     this.pieChart = undefined;
-  }
-
-  async onClose() {
-    this.disposeCharts();
-  }
-
-  onResize() {
-    this.waterfallChart?.resize();
-    this.pieChart?.resize();
+    this.monthlyExpensePieChart?.dispose();
+    this.monthlyExpensePieChart = undefined;
+    this.monthlySavingsGrowthChart?.dispose();
+    this.monthlySavingsGrowthChart = undefined;
   }
 
   private toggleExpenseSort(key: SortKey) {
@@ -535,6 +934,109 @@ export class ExpensesView extends ItemView {
     }
     this.updateFilteredView();
   };
+
+  private formatMonthKey(monthKey: string, locale: string) {
+    const year = Number(monthKey.slice(0, 4));
+    const monthIndex = Number(monthKey.slice(5, 7)) - 1;
+    return new Date(year, monthIndex, 1).toLocaleString(locale, { month: "long", year: "numeric" });
+  }
+
+  private getMonthlyExpenseCategoryPieOption(
+    pageData: MonthlyExpensesPageData,
+    baseCurrency: string,
+    textColor: string,
+  ): echarts.EChartsOption {
+    return {
+      tooltip: {
+        trigger: "item",
+        formatter: (params: any) => {
+          const value = Number(params.value ?? 0);
+          const percent = Number(params.percent ?? 0);
+          const breakdownEntries = Object.entries(params.data?.currencyBreakdown ?? {})
+            .map(([currency, amount]) => `${Number(amount).toFixed(2)} ${currency}`)
+            .join(", ");
+          return `${params.name}: ${value.toFixed(2)} ${baseCurrency} (${percent.toFixed(1)}%)${breakdownEntries ? `<br/>${breakdownEntries}` : ""}`;
+        },
+        textStyle: { color: "#111827" },
+      },
+      legend: {
+        orient: "horizontal",
+        bottom: 12,
+        left: "center",
+        textStyle: { color: textColor },
+      },
+      series: [
+        {
+          type: "pie",
+          radius: ["38%", "68%"],
+          top: 0,
+          bottom: 72,
+          data: pageData.categoryTotals.map((item) => ({
+            name: item.category,
+            value: Number(item.baseAmount.toFixed(2)),
+            currencyBreakdown: item.currencyBreakdown,
+          })),
+          label: {
+            color: textColor,
+            formatter: ({ name, percent }: any) => `${name}\n${percent.toFixed(0)}%`,
+          },
+        },
+      ],
+    };
+  }
+
+  private getMonthlySavingsGrowthOption(
+    pageData: MonthlyExpensesPageData,
+    baseCurrency: string,
+    textColor: string,
+  ): echarts.EChartsOption {
+    const labels = pageData.savingsGrowthSeries.map((item) => this.formatMonthKey(item.month, this.cachedStrings.locale));
+    const totals = pageData.savingsGrowthSeries.map((item) => Number(item.total.toFixed(2)));
+
+    return {
+      tooltip: {
+        trigger: "axis",
+        formatter: (params: any[]) => {
+          const point = params[0];
+          const index = point?.dataIndex ?? 0;
+          const current = totals[index] ?? 0;
+          const previous = index > 0 ? totals[index - 1] : 0;
+          const delta = current - previous;
+          return `${labels[index]}<br/>${current.toFixed(2)} ${baseCurrency}<br/>${this.cachedStrings.monthlyPageGrowthTooltipDelta}: ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} ${baseCurrency}`;
+        },
+        textStyle: { color: "#111827" },
+      },
+      grid: { left: 56, right: 24, top: 28, bottom: 56 },
+      xAxis: {
+        type: "category",
+        data: labels,
+        axisLabel: { color: textColor, rotate: labels.length > 6 ? 30 : 0 },
+        axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: {
+          color: textColor,
+          formatter: (value: number) => `${value.toFixed(0)} ${baseCurrency}`,
+        },
+        axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
+        splitLine: { lineStyle: { color: textColor, opacity: 0.25 } },
+      },
+      series: [
+        {
+          type: "line",
+          smooth: true,
+          symbolSize: 8,
+          data: totals,
+          lineStyle: { width: 3, color: "#3b82f6" },
+          itemStyle: { color: "#3b82f6" },
+          areaStyle: {
+            color: "rgba(59, 130, 246, 0.18)",
+          },
+        },
+      ],
+    };
+  }
 }
 
 type LegendSelectChangedEvent = {
@@ -566,7 +1068,7 @@ class ExpenseFilterController {
     return true;
   }
 
-  applyToTotals(totals: MonthlyTotal[]): MonthlyTotal[] {
+  applyToTotals(totals: MonthlyTotal[]) {
     return totals.map((total) => {
       const breakdown = total.breakdown.filter((entry) => this.passes(entry));
       const totalBase = breakdown.reduce((sum, item) => sum + item.baseValue, 0);
@@ -601,6 +1103,5 @@ function nextSortState<T extends string>(
   if (current.dir === "asc") {
     return { key, dir: "desc" };
   }
-  // reset to no sort
   return null;
 }
