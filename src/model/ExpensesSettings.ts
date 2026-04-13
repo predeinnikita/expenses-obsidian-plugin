@@ -5,4 +5,5 @@ export interface ExpensesSettings {
   baseCurrency: string;
   language: LanguageCode;
   notesPath: string;
+  manualExpenseCategories: string[];
 }

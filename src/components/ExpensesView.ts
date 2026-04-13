@@ -224,6 +224,32 @@ export class ExpensesView extends ItemView {
       await this.render();
     });
 
+    const categoriesSection = filtersRow.createDiv({ cls: "monthly-page-categories" });
+    categoriesSection.createEl("label", { text: strings.categoriesFilterLabel });
+    const categorySelect = categoriesSection.createEl("select");
+    categorySelect.createEl("option", {
+      text: strings.allCategoriesLabel,
+      value: "",
+    });
+    pageData.categories.forEach((category) => {
+      categorySelect.createEl("option", {
+        text: category,
+        value: category,
+      });
+    });
+    const selectedCategory =
+      pageData.filters.selectedCategories.length === 1 ? pageData.filters.selectedCategories[0] : "";
+    categorySelect.value = selectedCategory;
+    categorySelect.disabled = !pageData.categories.length;
+    categorySelect.addEventListener("change", async () => {
+      const value = categorySelect.value.trim();
+      this.monthlyPageFilters = {
+        ...pageData.filters,
+        selectedCategories: value ? [value] : [],
+      };
+      await this.render();
+    });
+
     const actions = topRow.createDiv({ cls: "monthly-page-actions" });
     const addExpenseButton = actions.createEl("button", { text: strings.addExpenseAction });
     addExpenseButton.addEventListener("click", () => {
@@ -242,6 +268,7 @@ export class ExpensesView extends ItemView {
         },
         strings,
         pageData.filters.selectedMonthKey,
+        this.plugin.settings.manualExpenseCategories ?? [],
       ).open();
     });
 
@@ -265,48 +292,11 @@ export class ExpensesView extends ItemView {
       ).open();
     });
 
-    const categoriesSection = toolbar.createDiv({ cls: "monthly-page-categories" });
-    categoriesSection.createEl("label", { text: strings.categoriesFilterLabel });
-    const categoryButtons = categoriesSection.createDiv({ cls: "monthly-page-category-buttons" });
-
-    const allSelected =
-      !pageData.categories.length ||
-      pageData.filters.selectedCategories.length === pageData.categories.length;
-    const allButton = categoryButtons.createEl("button", {
-      text: strings.allCategoriesLabel,
-      cls: allSelected ? "is-active" : "",
-    });
-    allButton.addEventListener("click", async () => {
-      this.monthlyPageFilters = {
-        ...pageData.filters,
-        selectedCategories: [],
-      };
-      await this.render();
-    });
-
     if (!pageData.categories.length) {
-      const empty = categoryButtons.createSpan({ cls: "monthly-page-empty", text: strings.monthlyPageNoCategories });
+      const empty = categoriesSection.createSpan({ cls: "monthly-page-empty", text: strings.monthlyPageNoCategories });
       empty.ariaDisabled = "true";
       return;
     }
-
-    pageData.categories.forEach((category) => {
-      const selected = pageData.filters.selectedCategories.includes(category);
-      const button = categoryButtons.createEl("button", {
-        text: category,
-        cls: selected ? "is-active" : "",
-      });
-      button.addEventListener("click", async () => {
-        const nextCategories = selected
-          ? pageData.filters.selectedCategories.filter((item) => item !== category)
-          : [...pageData.filters.selectedCategories, category];
-        this.monthlyPageFilters = {
-          ...pageData.filters,
-          selectedCategories: nextCategories,
-        };
-        await this.render();
-      });
-    });
   }
 
   private renderMonthlyPageSummary(container: HTMLElement, pageData: MonthlyExpensesPageData, strings = STRINGS[this.plugin.settings.language] ?? STRINGS.en) {
@@ -314,21 +304,9 @@ export class ExpensesView extends ItemView {
     const totalExpenses = pageData.categoryTotals.reduce((sum, item) => sum + item.baseAmount, 0);
     const summary = container.createDiv({ cls: "monthly-page-summary" });
 
-    const monthCard = summary.createDiv({ cls: "chart monthly-page-card" });
-    monthCard.createEl("div", { cls: "monthly-page-card-label", text: strings.monthlyPageSelectedMonth });
-    monthCard.createEl("strong", {
-      text: this.formatMonthKey(pageData.filters.selectedMonthKey, strings.locale),
-    });
-
     const expenseCard = summary.createDiv({ cls: "chart monthly-page-card" });
     expenseCard.createEl("div", { cls: "monthly-page-card-label", text: strings.monthlyPageTotalExpenses(baseCurrency) });
     expenseCard.createEl("strong", { text: `${totalExpenses.toFixed(2)} ${baseCurrency}` });
-
-    const savingsCard = summary.createDiv({ cls: "chart monthly-page-card" });
-    savingsCard.createEl("div", { cls: "monthly-page-card-label", text: strings.monthlyPageSavingsCurrenciesCount });
-    savingsCard.createEl("strong", {
-      text: pageData.snapshot ? String(Object.keys(pageData.snapshot.balances).length) : "0",
-    });
 
     const totalSavingsCard = summary.createDiv({ cls: "chart monthly-page-card" });
     totalSavingsCard.createEl("div", {
@@ -399,11 +377,13 @@ export class ExpensesView extends ItemView {
       );
     }
 
-    const balancesCard = analytics.createDiv({ cls: "chart monthly-page-analytics-card" });
+    const savingsCardsRow = analytics.createDiv({ cls: "monthly-page-savings-row" });
+
+    const balancesCard = savingsCardsRow.createDiv({ cls: "chart monthly-page-analytics-card" });
     balancesCard.createEl("h3", { text: strings.monthlyPageSavingsBalancesTitle });
     this.renderMonthlySavingsBalances(balancesCard, pageData, strings);
 
-    const totalCard = analytics.createDiv({ cls: "chart monthly-page-analytics-card" });
+    const totalCard = savingsCardsRow.createDiv({ cls: "chart monthly-page-analytics-card" });
     totalCard.createEl("h3", { text: strings.monthlyPageSavingsBaseTotalTitle(baseCurrency) });
     this.renderMonthlySavingsBaseTotal(totalCard, pageData, strings);
 

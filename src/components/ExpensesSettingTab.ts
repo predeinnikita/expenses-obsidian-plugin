@@ -79,6 +79,24 @@ export class ExpensesSettingTab extends PluginSettingTab {
           }),
       );
 
+    new Setting(containerEl)
+      .setName(strings.manualExpenseCategories)
+      .setDesc(strings.manualExpenseCategoriesDesc)
+      .addTextArea((text) => {
+        text
+          .setPlaceholder("Products\nTransport\nHealth")
+          .setValue((this.plugin.settings.manualExpenseCategories ?? []).join("\n"))
+          .onChange(async (value) => {
+            this.plugin.settings.manualExpenseCategories = value
+              .split("\n")
+              .map((item) => item.trim())
+              .filter(Boolean);
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.rows = 6;
+        text.inputEl.cols = 40;
+      });
+
     const entriesContainer = containerEl.createDiv();
     void this.renderEntries(entriesContainer, strings);
   }

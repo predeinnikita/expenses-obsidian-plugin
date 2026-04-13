@@ -5,6 +5,7 @@ import type { Strings } from "../model/Strings";
 export class ManualExpenseModal extends Modal {
   private data: ManualExpense;
   private amountValue: string;
+  private readonly categories: string[];
 
   constructor(
     app: any,
@@ -12,9 +13,16 @@ export class ManualExpenseModal extends Modal {
     private readonly onSubmit: (expense: ManualExpense) => void,
     private readonly strings: Strings[keyof Strings],
     suggestedMonthKey: string,
+    categories: string[],
   ) {
     super(app);
-    const defaultDate = `${suggestedMonthKey}-01`;
+    this.categories = categories;
+    const today = new Date();
+    const defaultDate = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
     this.data = expense ?? {
       id: crypto.randomUUID?.() ?? `${Date.now()}`,
       type: "manual-expense",
@@ -33,19 +41,21 @@ export class ManualExpenseModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
+    const categoryOptions = this.getCategoryOptions();
 
     contentEl.createEl("h3", { text: this.strings.manualExpenseModalTitle });
 
-    new Setting(contentEl).setName(this.strings.manualExpenseDate).addText((text) =>
-      text
-        .setPlaceholder("2026-04-13")
-        .setValue(this.data.date)
-        .onChange((value) => (this.data.date = value.trim())),
-    );
+    new Setting(contentEl).setName(this.strings.manualExpenseDate).addText((text) => {
+      text.inputEl.type = "date";
+      text.setValue(this.data.date).onChange((value) => (this.data.date = value.trim()));
+    });
 
-    new Setting(contentEl).setName(this.strings.manualExpenseCategory).addText((text) =>
-      text.setValue(this.data.category).onChange((value) => (this.data.category = value.trim())),
-    );
+    new Setting(contentEl).setName(this.strings.manualExpenseCategory).addDropdown((dropdown) => {
+      dropdown.addOption("", this.strings.manualExpenseCategoryPlaceholder);
+      categoryOptions.forEach((category) => dropdown.addOption(category, category));
+      dropdown.setValue(categoryOptions.includes(this.data.category) ? this.data.category : "");
+      dropdown.onChange((value) => (this.data.category = value.trim()));
+    });
 
     new Setting(contentEl).setName(this.strings.amount).addText((text) =>
       text
@@ -113,5 +123,13 @@ export class ManualExpenseModal extends Modal {
       date.getMonth() === month - 1 &&
       date.getDate() === day
     );
+  }
+
+  private getCategoryOptions() {
+    const options = [...this.categories];
+    if (this.data.category && !options.includes(this.data.category)) {
+      options.push(this.data.category);
+    }
+    return options;
   }
 }

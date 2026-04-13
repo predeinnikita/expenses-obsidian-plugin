@@ -29,6 +29,8 @@ export type Strings = Record<
     monthsToShowDesc: string;
     notesPath: string;
     notesPathDesc: string;
+    manualExpenseCategories: string;
+    manualExpenseCategoriesDesc: string;
     expensesList: string;
     incomesList: string;
     add: string;
@@ -78,6 +80,7 @@ export type Strings = Record<
     manualExpenseModalTitle: string;
     manualExpenseDate: string;
     manualExpenseCategory: string;
+    manualExpenseCategoryPlaceholder: string;
     monthlySavingsModalTitle: string;
     monthlySavingsMonth: string;
     monthlySavingsCurrency: string;

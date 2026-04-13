@@ -5,4 +5,5 @@ export const DEFAULT_SETTINGS: ExpensesSettings = {
   baseCurrency: "RUB",
   language: "en",
   notesPath: "Expenses",
+  manualExpenseCategories: [],
 };

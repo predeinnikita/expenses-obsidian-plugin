@@ -72,6 +72,11 @@ export default class ExpensesPlugin extends Plugin {
       baseCurrency: loaded?.baseCurrency ?? DEFAULT_SETTINGS.baseCurrency,
       language: loaded?.language ?? DEFAULT_SETTINGS.language,
       notesPath: loaded?.notesPath ?? DEFAULT_SETTINGS.notesPath,
+      manualExpenseCategories: Array.isArray(loaded?.manualExpenseCategories)
+        ? loaded.manualExpenseCategories
+            .map((value: unknown) => (typeof value === "string" ? value.trim() : ""))
+            .filter(Boolean)
+        : DEFAULT_SETTINGS.manualExpenseCategories,
     };
   }
 
