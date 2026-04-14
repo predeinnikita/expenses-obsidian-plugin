@@ -238,7 +238,7 @@
   margin-bottom: 12px;
 }
 
-.monthly-page-analytics-card {
+.chart.monthly-page-analytics-card {
   display: flex;
   flex-direction: column;
   justify-content: space-between;

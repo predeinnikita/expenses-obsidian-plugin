@@ -6,6 +6,7 @@ export class ManualExpenseModal extends Modal {
   private data: ManualExpense;
   private amountValue: string;
   private readonly categories: string[];
+  private readonly isNewExpense: boolean;
 
   constructor(
     app: any,
@@ -17,6 +18,7 @@ export class ManualExpenseModal extends Modal {
   ) {
     super(app);
     this.categories = categories;
+    this.isNewExpense = !expense;
     const today = new Date();
     const defaultDate = [
       today.getFullYear(),
@@ -24,7 +26,7 @@ export class ManualExpenseModal extends Modal {
       String(today.getDate()).padStart(2, "0"),
     ].join("-");
     this.data = expense ?? {
-      id: crypto.randomUUID?.() ?? `${Date.now()}`,
+      id: "",
       type: "manual-expense",
       date: defaultDate,
       category: "",
@@ -99,6 +101,7 @@ export class ManualExpenseModal extends Modal {
       this.close();
       this.onSubmit({
         ...this.data,
+        id: this.isNewExpense ? this.createTimestampId(new Date()) : this.data.id,
         category: this.data.category.trim(),
         date: this.data.date,
         amount,
@@ -131,5 +134,16 @@ export class ManualExpenseModal extends Modal {
       options.push(this.data.category);
     }
     return options;
+  }
+
+  private createTimestampId(value: Date): string {
+    return [
+      value.getFullYear(),
+      String(value.getMonth() + 1).padStart(2, "0"),
+      String(value.getDate()).padStart(2, "0"),
+      String(value.getHours()).padStart(2, "0"),
+      String(value.getMinutes()).padStart(2, "0"),
+      String(value.getSeconds()).padStart(2, "0"),
+    ].join("-");
   }
 }

@@ -694,9 +694,8 @@ export default class ExpensesPlugin extends Plugin {
   }
 
   private getManualExpenseNotePath(expense: ManualExpense, folder: string): string {
-    const categorySlug = this.slugifyPathPart(expense.category);
     const safeId = this.slugifyPathPart(expense.id);
-    const fileName = `expense-${expense.date}-${categorySlug}-${safeId}.md`;
+    const fileName = `manual-expense-${safeId}.md`;
     return folder ? normalizePath(`${folder}/${fileName}`) : fileName;
   }
 
