@@ -5,6 +5,7 @@ import type { LanguageCode } from "../model/LanguageCode";
 import { ExpenseModal } from "./ExpenseModal";
 import type { Expense } from "../model/Expense";
 import type { Strings } from "../model/Strings";
+import { formatMoney } from "../util/formatMoney";
 
 export class ExpensesSettingTab extends PluginSettingTab {
   constructor(app: App, private plugin: ExpensesPlugin) {
@@ -164,7 +165,7 @@ export class ExpensesSettingTab extends PluginSettingTab {
     entries.expenses.forEach((expense) => {
       const row = list.createEl("div", { cls: "expense-row" });
       row.createSpan({
-        text: `${expense.name} — ${expense.amount} ${expense.currency.toUpperCase()} (${expense.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly})`,
+        text: `${expense.name} — ${formatMoney(expense.amount)} ${expense.currency.toUpperCase()} (${expense.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly})`,
       });
 
       if (expense.startMonth) {
@@ -209,7 +210,7 @@ export class ExpensesSettingTab extends PluginSettingTab {
     entries.incomes.forEach((income) => {
       const row = incomeList.createEl("div", { cls: "expense-row" });
       row.createSpan({
-        text: `${income.name} — ${income.amount} ${income.currency.toUpperCase()} (${income.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly})`,
+        text: `${income.name} — ${formatMoney(income.amount)} ${income.currency.toUpperCase()} (${income.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly})`,
       });
 
       if (income.startMonth) {

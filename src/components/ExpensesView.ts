@@ -9,6 +9,7 @@ import type { MonthlyExpensesPageFilters } from "../model/MonthlyExpensesPageFil
 import { STRINGS } from "../model/translations";
 import { ManualExpenseModal } from "./ManualExpenseModal";
 import { MonthlySavingsModal } from "./MonthlySavingsModal";
+import { formatMoney } from "../util/formatMoney";
 
 type SortKey = "name" | "cadence" | "amount" | "baseValue";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
@@ -306,7 +307,7 @@ export class ExpensesView extends ItemView {
 
     const expenseCard = summary.createDiv({ cls: "chart monthly-page-card" });
     expenseCard.createEl("div", { cls: "monthly-page-card-label", text: strings.monthlyPageTotalExpenses(baseCurrency) });
-    expenseCard.createEl("strong", { text: `${totalExpenses.toFixed(2)} ${baseCurrency}` });
+    expenseCard.createEl("strong", { text: `${formatMoney(totalExpenses)} ${baseCurrency}` });
 
     const totalSavingsCard = summary.createDiv({ cls: "chart monthly-page-card" });
     totalSavingsCard.createEl("div", {
@@ -315,7 +316,7 @@ export class ExpensesView extends ItemView {
     });
     totalSavingsCard.createEl("strong", {
       text: pageData.savingsBaseTotal
-        ? `${pageData.savingsBaseTotal.total.toFixed(2)} ${baseCurrency}`
+        ? `${formatMoney(pageData.savingsBaseTotal.total)} ${baseCurrency}`
         : `0.00 ${baseCurrency}`,
     });
   }
@@ -413,7 +414,7 @@ export class ExpensesView extends ItemView {
       .forEach(([currency, amount]) => {
         const row = list.createDiv({ cls: "monthly-page-balance-row" });
         row.createSpan({ cls: "monthly-page-balance-currency", text: currency.toUpperCase() });
-        row.createSpan({ cls: "monthly-page-balance-amount", text: amount.toFixed(2) });
+        row.createSpan({ cls: "monthly-page-balance-amount", text: formatMoney(amount) });
       });
   }
 
@@ -426,7 +427,7 @@ export class ExpensesView extends ItemView {
 
     const total = container.createDiv({ cls: "monthly-page-base-total" });
     total.createEl("strong", {
-      text: `${pageData.savingsBaseTotal.total.toFixed(2)} ${baseCurrency}`,
+      text: `${formatMoney(pageData.savingsBaseTotal.total)} ${baseCurrency}`,
     });
 
     const breakdown = container.createDiv({ cls: "monthly-page-converted-list" });
@@ -438,7 +439,7 @@ export class ExpensesView extends ItemView {
       });
       row.createSpan({
         cls: "monthly-page-converted-value",
-        text: `${item.baseValue.toFixed(2)} ${baseCurrency}`,
+        text: `${formatMoney(item.baseValue)} ${baseCurrency}`,
       });
     });
   }
@@ -465,7 +466,7 @@ export class ExpensesView extends ItemView {
       const row = tbody.createEl("tr");
       row.createEl("td", { text: expense.date });
       row.createEl("td", { text: expense.category });
-      row.createEl("td", { text: expense.amount.toFixed(2) });
+      row.createEl("td", { text: formatMoney(expense.amount) });
       row.createEl("td", { text: expense.currency.toUpperCase() });
     });
   }
@@ -491,7 +492,7 @@ export class ExpensesView extends ItemView {
       .forEach(([currency, amount]) => {
         const row = tbody.createEl("tr");
         row.createEl("td", { text: currency });
-        row.createEl("td", { text: amount.toFixed(2) });
+        row.createEl("td", { text: formatMoney(amount) });
       });
   }
 
@@ -531,9 +532,9 @@ export class ExpensesView extends ItemView {
         text: entry.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly,
       });
       row.createEl("td", {
-        text: `${entry.amount.toFixed(2)} ${entry.currency}`,
+        text: `${formatMoney(entry.amount)} ${entry.currency}`,
       });
-      row.createEl("td", { text: `${entry.baseValue.toFixed(2)} ${baseCurrency}` });
+      row.createEl("td", { text: `${formatMoney(entry.baseValue)} ${baseCurrency}` });
     });
   }
 
@@ -574,9 +575,9 @@ export class ExpensesView extends ItemView {
         text: entry.cadence === "monthly" ? strings.cadenceLabel.monthly : strings.cadenceLabel.yearly,
       });
       row.createEl("td", {
-        text: `${entry.amount.toFixed(2)} ${entry.currency}`,
+        text: `${formatMoney(entry.amount)} ${entry.currency}`,
       });
-      row.createEl("td", { text: `${entry.baseValue.toFixed(2)} ${baseCurrency}` });
+      row.createEl("td", { text: `${formatMoney(entry.baseValue)} ${baseCurrency}` });
     });
   }
 
@@ -598,7 +599,7 @@ export class ExpensesView extends ItemView {
     totals.forEach((month) => {
       const row = tbody.createEl("tr");
       row.createEl("td", { text: month.month.label });
-      row.createEl("td", { text: `${month.totalBase.toFixed(2)} ${baseCurrency}` });
+      row.createEl("td", { text: `${formatMoney(month.totalBase)} ${baseCurrency}` });
     });
   }
 
@@ -770,7 +771,7 @@ export class ExpensesView extends ItemView {
           const bar = params.find((p) => p.seriesName === "value") ?? params[1] ?? params[0];
           const value = bar?.data?.value ?? bar?.value ?? 0;
           const name = bar?.name ?? "";
-          const formatted = `${value >= 0 ? "" : "-"}${Math.abs(value).toFixed(2)}`;
+          const formatted = formatMoney(value);
           let suffix = "";
           if ((name === labels[1] || name === labels[2]) && incomeValue !== 0) {
             const percent = Math.abs((value / incomeValue) * 100);
@@ -809,7 +810,7 @@ export class ExpensesView extends ItemView {
           label: {
             show: true,
             position: "inside",
-            formatter: ({ value }: any) => `${value >= 0 ? "" : "-"}${Math.abs(value).toFixed(0)}`,
+            formatter: ({ value }: any) => formatMoney(value, 0),
           },
           data: steps.map((value, index) => ({
             value,
@@ -837,7 +838,7 @@ export class ExpensesView extends ItemView {
           const name = params.data?.displayName ?? params.name;
           const value = params.value ?? 0;
           const percent = params.percent ?? 0;
-          return `${name}: ${baseCurrency} ${value} (${percent}%)`;
+          return `${name}: ${baseCurrency} ${formatMoney(value)} (${percent}%)`;
         },
         textStyle: { color: "#111827" },
       },
@@ -933,9 +934,9 @@ export class ExpensesView extends ItemView {
           const value = Number(params.value ?? 0);
           const percent = Number(params.percent ?? 0);
           const breakdownEntries = Object.entries(params.data?.currencyBreakdown ?? {})
-            .map(([currency, amount]) => `${Number(amount).toFixed(2)} ${currency}`)
+            .map(([currency, amount]) => `${formatMoney(Number(amount))} ${currency}`)
             .join(", ");
-          return `${params.name}: ${value.toFixed(2)} ${baseCurrency} (${percent.toFixed(1)}%)${breakdownEntries ? `<br/>${breakdownEntries}` : ""}`;
+          return `${params.name}: ${formatMoney(value)} ${baseCurrency} (${percent.toFixed(1)}%)${breakdownEntries ? `<br/>${breakdownEntries}` : ""}`;
         },
         textStyle: { color: "#111827" },
       },
@@ -982,7 +983,7 @@ export class ExpensesView extends ItemView {
           const current = totals[index] ?? 0;
           const previous = index > 0 ? totals[index - 1] : 0;
           const delta = current - previous;
-          return `${labels[index]}<br/>${current.toFixed(2)} ${baseCurrency}<br/>${this.cachedStrings.monthlyPageGrowthTooltipDelta}: ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} ${baseCurrency}`;
+          return `${labels[index]}<br/>${formatMoney(current)} ${baseCurrency}<br/>${this.cachedStrings.monthlyPageGrowthTooltipDelta}: ${delta >= 0 ? "+" : ""}${formatMoney(delta)} ${baseCurrency}`;
         },
         textStyle: { color: "#111827" },
       },
@@ -997,7 +998,7 @@ export class ExpensesView extends ItemView {
         type: "value",
         axisLabel: {
           color: textColor,
-          formatter: (value: number) => `${value.toFixed(0)} ${baseCurrency}`,
+          formatter: (value: number) => `${formatMoney(value, 0)} ${baseCurrency}`,
         },
         axisLine: { lineStyle: { color: textColor, opacity: 0.5 } },
         splitLine: { lineStyle: { color: textColor, opacity: 0.25 } },
