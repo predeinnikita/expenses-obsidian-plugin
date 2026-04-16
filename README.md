@@ -52,7 +52,7 @@ start: 2024-01
 
 Supported `type` values: `expense`, `income`. The plugin reads entries from these notes, so you can also edit frontmatter manually.
 
-Manual month-level expenses use a separate note format:
+Manual month-level expenses use a separate note format and are stored under `expenses/<month>/<date>/<category>/` inside the notes folder:
 
 ```markdown
 ---
@@ -65,7 +65,7 @@ currency: AMD
 ---
 ```
 
-Monthly savings snapshots are stored as one note per month:
+Monthly savings snapshots are stored as one note per month under `savings/` inside the notes folder:
 
 ```markdown
 ---

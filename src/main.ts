@@ -171,6 +171,11 @@ export default class ExpensesPlugin extends Plugin {
     }
 
     const path = this.getManualExpenseNotePath(expense, notesPath);
+    const targetFolder = this.getParentFolderPath(path);
+    if (targetFolder) {
+      const ok = await this.ensureFolder(targetFolder);
+      if (!ok) return;
+    }
     const content = this.buildManualExpenseNoteContent(expense);
     const existing = this.app.vault.getAbstractFileByPath(path);
 
@@ -187,6 +192,11 @@ export default class ExpensesPlugin extends Plugin {
               : null);
           if (previousFile) {
             if (previousFile.path !== path) {
+              const nextFolder = this.getParentFolderPath(path);
+              if (nextFolder) {
+                const ok = await this.ensureFolder(nextFolder);
+                if (!ok) return;
+              }
               await this.app.vault.rename(previousFile, path);
             }
             targetFile = previousFile;
@@ -251,6 +261,11 @@ export default class ExpensesPlugin extends Plugin {
 
     const normalizedSnapshot = this.normalizeMonthlySavingsSnapshot(snapshot);
     const path = this.getMonthlySavingsSnapshotNotePath(normalizedSnapshot.month, notesPath);
+    const targetFolder = this.getParentFolderPath(path);
+    if (targetFolder) {
+      const ok = await this.ensureFolder(targetFolder);
+      if (!ok) return;
+    }
     const content = this.buildMonthlySavingsSnapshotNoteContent(normalizedSnapshot);
     const existing = this.app.vault.getAbstractFileByPath(path);
 
@@ -265,6 +280,11 @@ export default class ExpensesPlugin extends Plugin {
               : null) ?? (await this.findMonthlySavingsSnapshotNoteByMonth(previousSnapshot.month, notesPath));
           if (previousFile) {
             if (previousFile.path !== path) {
+              const nextFolder = this.getParentFolderPath(path);
+              if (nextFolder) {
+                const ok = await this.ensureFolder(nextFolder);
+                if (!ok) return;
+              }
               await this.app.vault.rename(previousFile, path);
             }
             targetFile = previousFile;
@@ -694,14 +714,17 @@ export default class ExpensesPlugin extends Plugin {
   }
 
   private getManualExpenseNotePath(expense: ManualExpense, folder: string): string {
+    const safeMonth = this.sanitizePathSegment(expense.month);
+    const safeDate = this.sanitizePathSegment(expense.date);
+    const safeCategory = this.sanitizePathSegment(expense.category);
     const safeId = this.slugifyPathPart(expense.id);
-    const fileName = `manual-expense-${safeId}.md`;
-    return folder ? normalizePath(`${folder}/${fileName}`) : fileName;
+    const relativePath = normalizePath(`expenses/${safeMonth}/${safeDate}/${safeCategory}/manual-expense-${safeId}.md`);
+    return folder ? normalizePath(`${folder}/${relativePath}`) : relativePath;
   }
 
   private getMonthlySavingsSnapshotNotePath(monthKey: string, folder: string): string {
-    const fileName = `savings-${monthKey}.md`;
-    return folder ? normalizePath(`${folder}/${fileName}`) : fileName;
+    const relativePath = normalizePath(`savings/savings-${monthKey}.md`);
+    return folder ? normalizePath(`${folder}/${relativePath}`) : relativePath;
   }
 
   private buildEntryNoteContent(entry: Expense, type: "expense" | "income"): string {
@@ -789,10 +812,22 @@ export default class ExpensesPlugin extends Plugin {
     return true;
   }
 
+  private getParentFolderPath(path: string): string {
+    const normalized = normalizePath(path);
+    const lastSlash = normalized.lastIndexOf("/");
+    return lastSlash === -1 ? "" : normalized.slice(0, lastSlash);
+  }
+
   private sanitizeFileName(name: string): string {
     const trimmed = name.trim();
     const cleaned = trimmed.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ");
     return cleaned || "entry";
+  }
+
+  private sanitizePathSegment(value: string): string {
+    const trimmed = value.trim();
+    const cleaned = trimmed.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ");
+    return cleaned || "item";
   }
 
   private slugifyPathPart(value: string): string {
